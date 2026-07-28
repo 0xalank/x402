@@ -61,7 +61,8 @@ MUST NOT add a separate ledger or transaction-type selector.
 }
 ```
 
-`amount` MUST be a positive base-10 integer containing the exact number of wei.
+`amount` MUST be a positive base-10 integer containing the exact number of wei
+and MUST fit in an unsigned 256-bit value.
 `payTo` MUST be a valid Quai-ledger address.
 
 ### QI
@@ -163,8 +164,8 @@ For `asset = "slip44:994"`, the facilitator MUST verify:
 6. `transaction.value` equals `amount`.
 7. `transaction.data` is empty and the transaction is not contract creation.
 8. The transaction has no work fields.
-9. The transaction nonce equals the sender's current on-chain nonce.
-10. The sender balance covers `value + gasLimit * gasPrice`.
+9. The transaction nonce equals the sender's next pending nonce.
+10. The sender's pending-state balance covers `value + gasLimit * gasPrice`.
 11. The gas limit and gas price satisfy current network rules.
 12. Simulating the transaction against current state succeeds.
 
@@ -269,7 +270,7 @@ Implementations SHOULD use stable error tokens:
 | `invalid_exact_quai_destination` | Payment destination differs |
 | `invalid_exact_quai_amount` | Payment amount differs |
 | `invalid_exact_quai_zone` | Transfer is not same-zone or zone is inactive |
-| `invalid_exact_quai_nonce` | QUAI nonce is not current |
+| `invalid_exact_quai_nonce` | QUAI nonce is not the next pending nonce |
 | `invalid_exact_quai_input` | QI input is missing, spent, locked, duplicated, or unauthorized |
 | `invalid_exact_quai_output` | QI output violates denomination, address, or lock rules |
 | `invalid_exact_quai_fee` | Network fee is insufficient |
@@ -283,8 +284,9 @@ Implementations SHOULD use stable error tokens:
 
 QUAI nonces and QI outpoints prevent successful on-chain replay, but two
 concurrent settlement requests could otherwise both pass verification before
-one reaches the network. Facilitators MUST use an atomic reservation covering
-verification through final settlement.
+one reaches the network. Facilitators MUST hold an exclusive atomic claim from
+final verification through settlement. A retryable transaction MUST have only
+one active claim at a time.
 
 Verification alone MUST NOT permanently consume a transaction hash. A
 successfully verified payload must remain eligible for the immediately
