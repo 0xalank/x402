@@ -45,6 +45,7 @@ PUBLISHED_PACKAGES = [
     "@x402/hedera",
     "@x402/keeta",
     "@x402/near",
+    "@x402/quai",
     "@x402/concordium",
     "@x402/tvm",
     "@x402/xrpl",

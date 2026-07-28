@@ -61,7 +61,8 @@ MUST NOT add a separate ledger or transaction-type selector.
 }
 ```
 
-`amount` MUST be a positive base-10 integer containing the exact number of wei.
+`amount` MUST be a positive base-10 integer containing the exact number of wei
+and MUST fit in an unsigned 256-bit value.
 `payTo` MUST be a valid Quai-ledger address.
 
 ### QI
@@ -163,8 +164,8 @@ For `asset = "slip44:994"`, the facilitator MUST verify:
 6. `transaction.value` equals `amount`.
 7. `transaction.data` is empty and the transaction is not contract creation.
 8. The transaction has no work fields.
-9. The transaction nonce equals the sender's current on-chain nonce.
-10. The sender balance covers `value + gasLimit * gasPrice`.
+9. The transaction nonce equals the sender's next pending nonce.
+10. The sender's pending-state balance covers `value + gasLimit * gasPrice`.
 11. The gas limit and gas price satisfy current network rules.
 12. Simulating the transaction against current state succeeds.
 
@@ -223,7 +224,8 @@ Successful QI verification:
 The facilitator MUST:
 
 1. Acquire an atomic in-flight reservation keyed by the signed transaction
-   hash. If the hash is already reserved or settled, settlement MUST fail.
+   hash. A settled hash MUST fail. A retry of a reserved hash MAY resume only
+   if the signed bytes and economic payment fields are identical.
 2. Re-run all verification checks against current network state.
 3. Resolve the origin zone from the recovered QUAI sender or QI inputs.
 4. Submit the original `signedTransaction`, unchanged, to that zone using
@@ -237,6 +239,8 @@ The facilitator MUST:
 
 Returning a mempool acceptance result is not successful settlement. A
 facilitator MUST return `success: true` only after successful inclusion.
+If submission has an ambiguous result, an explicit retry MAY check inclusion
+and resubmit the same signed bytes; it MUST NOT substitute another transaction.
 
 Successful settlement:
 
@@ -264,7 +268,7 @@ Implementations SHOULD use stable error tokens:
 | `invalid_exact_quai_destination` | Payment destination differs |
 | `invalid_exact_quai_amount` | Payment amount differs |
 | `invalid_exact_quai_zone` | Transfer is not same-zone or zone is inactive |
-| `invalid_exact_quai_nonce` | QUAI nonce is not current |
+| `invalid_exact_quai_nonce` | QUAI nonce is not the next pending nonce |
 | `invalid_exact_quai_input` | QI input is missing, spent, locked, duplicated, or unauthorized |
 | `invalid_exact_quai_output` | QI output violates denomination, address, or lock rules |
 | `invalid_exact_quai_fee` | Network fee is insufficient |
