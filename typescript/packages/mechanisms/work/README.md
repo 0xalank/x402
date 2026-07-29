@@ -62,17 +62,12 @@ The store must provide atomic acquire, release, and settle operations. Use a
 durable shared implementation in production. `InMemoryWorkSettlementStore` is
 provided for local tests and single-process examples only.
 
-A facilitator profile implements three boundaries:
-
-1. `fingerprint` cheaply identifies the canonical job and solution before the
-   expensive proof function.
-2. `verify` reconstructs the native candidate and returns its uint256 score.
-3. `settle` submits the exact verified solution and reports source acceptance.
+A facilitator profile fingerprints the canonical job and solution, verifies
+the native proof and score, then submits the exact solution during settlement.
 
 Verification does not reserve or submit work. Settlement atomically reserves
 the fingerprint, re-verifies mutable state, and succeeds only after source
-acceptance. Ambiguous submissions retain the reservation lease so the adapter
-can safely reconcile or retry.
+acceptance. Ambiguous submissions retain the lease for reconciliation.
 
 See the [work scheme specification](../../../../specs/schemes/work/scheme_work.md)
 for profile and wire requirements.

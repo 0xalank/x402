@@ -162,5 +162,6 @@ export function supports(
   profile: { asset: string; networks: readonly string[] },
   requirements: PaymentRequirements,
 ): boolean {
+  if (requirements.asset !== "hash") return false;
   return profile.asset === requirements.asset && profile.networks.includes(requirements.network);
 }

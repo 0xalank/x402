@@ -104,6 +104,9 @@ describe("work server and client", () => {
       { amount: "65536", asset: "hash", extra: { profile: PROFILE } },
       NETWORK,
     );
+    await expect(
+      server.parsePrice({ amount: "1", asset: "share", extra: { profile: PROFILE } }, NETWORK),
+    ).rejects.toThrow("does not support");
     const base = requirements({ extra: price.extra ?? {} });
     const enhanced = await server.enhancePaymentRequirements(base, supported());
     const context = {

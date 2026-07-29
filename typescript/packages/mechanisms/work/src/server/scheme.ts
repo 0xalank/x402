@@ -26,7 +26,8 @@ export class WorkScheme implements SchemeNetworkServer {
   constructor(options: WorkServerOptions) {
     this.now = options.now ?? Date.now;
     for (const issuer of options.issuers) {
-      if (!isProfileId(issuer.profile)) throw new Error(`invalid work profile: ${issuer.profile}`);
+      if (!isProfileId(issuer.profile) || issuer.asset !== "hash")
+        throw new Error(`invalid work profile: ${issuer.profile}`);
       if (this.issuers.has(issuer.profile))
         throw new Error(`duplicate work issuer: ${issuer.profile}`);
       this.issuers.set(issuer.profile, issuer);

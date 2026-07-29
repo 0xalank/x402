@@ -45,7 +45,7 @@ export class WorkScheme implements SchemeNetworkFacilitator {
     this.caipFamily = options.caipFamily ?? "*:*";
     this.now = options.now ?? Date.now;
     for (const profile of options.profiles) {
-      if (!isProfileId(profile.profile))
+      if (!isProfileId(profile.profile) || profile.asset !== "hash")
         throw new Error(`invalid work profile: ${profile.profile}`);
       if (this.profiles.has(profile.profile)) {
         throw new Error(`duplicate work profile: ${profile.profile}`);

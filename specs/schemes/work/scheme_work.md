@@ -39,9 +39,8 @@ Stratum, and StratumX are adapters, not profile identities.
 `"x402-work"`, and `extra.version` MUST be `"1"`. The profile revision is part
 of `extra.profile`; a separate `profileVersion` MUST NOT be used.
 
-`network` is the CAIP-2 identifier receiving the work. `asset` is the profile's
-atomic trial unit, normally `"hash"`. `payTo` is the provider reward
-destination bound to the source job.
+`network` is the CAIP-2 identifier receiving the work. `asset` MUST be
+`"hash"`. `payTo` is the provider reward destination bound to the source job.
 
 `amount` is a base-10 integer from `1` through `2^256`, denominated in expected
 profile trials. Profiles map native results to uniformly distributed uint256

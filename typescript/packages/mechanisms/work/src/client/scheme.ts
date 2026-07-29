@@ -26,8 +26,8 @@ export class WorkScheme implements SchemeNetworkClient {
     x402Version: number,
     requirements: PaymentRequirements,
   ): Promise<PaymentPayloadResult> {
-    if (x402Version !== 2 || requirements.scheme !== WORK_SCHEME) {
-      throw new Error("work payments require x402 v2");
+    if (x402Version !== 2 || requirements.scheme !== WORK_SCHEME || requirements.asset !== "hash") {
+      throw new Error("work payments require x402 v2 and asset hash");
     }
     const extra = parseWorkExtra(requirements.extra);
     const solver = this.solvers.get(extra.profile);
