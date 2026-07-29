@@ -30,7 +30,7 @@ app.use(
 ```shell
 # All available reference sdks
 npm install @x402/core \
-  @x402/evm @x402/svm @x402/avm @x402/aptos @x402/stellar @x402/tvm @x402/hedera @x402/keeta @x402/quai \
+  @x402/evm @x402/svm @x402/avm @x402/aptos @x402/stellar @x402/tvm @x402/hedera @x402/keeta @x402/quai @x402/work \
   @x402/axios @x402/fastify @x402/fetch @x402/express @x402/hono @x402/next @x402/paywall @x402/extensions @x402/mcp
 ```
 
@@ -90,7 +90,7 @@ Curated third-party SDKs, extensions, and facilitators are listed in the [Develo
 
 **Roadmap:** see [ROADMAP.md](https://github.com/x402-foundation/x402/blob/main/ROADMAP.md)
 
-**Documentation:** see [`docs/`](./docs/) for the published documentation source (Mintlify). Payment **schemes** include **`exact`**, **`upto`**, and **`batch-settlement`**; specifications live under [`specs/schemes/`](./specs/schemes/).
+**Documentation:** see [`docs/`](./docs/) for the published documentation source (Mintlify). Payment **schemes** include **`exact`**, **`upto`**, **`batch-settlement`**, and **`work`**; specifications live under [`specs/schemes/`](./specs/schemes/).
 
 ## Choosing a Production Path
 
@@ -159,7 +159,7 @@ A scheme is a logical way of moving money.
 Blockchains allow for a large number of flexible ways to move money. To help facilitate an expanding number of payment use cases, the `x402` protocol is extensible to different ways of settling payments via its `scheme` field.
 
 Each payment scheme may have different operational functionality depending on what actions are necessary to fulfill the payment.
-For example, **`exact`** transfers a specific amount (for example, pay $1 to read an article). **`upto`** authorizes up to a maximum per request; the seller settles the actual usage, up to that cap. **`batch-settlement`** (EVM) uses escrow and off-chain vouchers so sellers can redeem many small charges onchain in batches instead of settling every HTTP request separately.
+For example, **`exact`** transfers a specific amount (for example, pay $1 to read an article). **`upto`** authorizes up to a maximum per request; the seller settles the actual usage, up to that cap. **`batch-settlement`** (EVM) uses escrow and off-chain vouchers so sellers can redeem many small charges onchain in batches instead of settling every HTTP request separately. **`work`** settles a provider-issued proof-of-work solution through a profile-defined native work source.
 
 See `specs/schemes` for full scheme specifications; `specs/schemes/exact/scheme_exact_evm.md` describes **exact** payments on EVM chains.
 
