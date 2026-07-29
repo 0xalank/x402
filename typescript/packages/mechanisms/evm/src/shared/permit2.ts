@@ -78,6 +78,7 @@ export type Permit2ProxyConfig = {
  * @param payer - The payer address
  * @param tokenAddress - The token contract address
  * @param context - Optional facilitator context for extension lookup
+ * @param permit2Address - Trusted Permit2 deployment address
  * @returns A VerifyResponse if verification should stop (failure), or null to continue
  */
 export async function verifyPermit2Allowance(
@@ -87,13 +88,14 @@ export async function verifyPermit2Allowance(
   payer: `0x${string}`,
   tokenAddress: `0x${string}`,
   context?: FacilitatorContext,
+  permit2Address: `0x${string}` = PERMIT2_ADDRESS,
 ): Promise<VerifyResponse | null> {
   try {
     const allowance = (await signer.readContract({
       address: tokenAddress,
       abi: erc20AllowanceAbi,
       functionName: "allowance",
-      args: [payer, PERMIT2_ADDRESS],
+      args: [payer, permit2Address],
     })) as bigint;
 
     if (allowance >= BigInt(requirements.amount)) {
@@ -103,7 +105,12 @@ export async function verifyPermit2Allowance(
     // Allowance insufficient — try EIP-2612 gas sponsoring first
     const eip2612Info = extractEip2612GasSponsoringInfo(payload);
     if (eip2612Info) {
-      const result = validateEip2612PermitForPayment(eip2612Info, payer, tokenAddress);
+      const result = validateEip2612PermitForPayment(
+        eip2612Info,
+        payer,
+        tokenAddress,
+        permit2Address,
+      );
       if (!result.isValid) {
         return { isValid: false, invalidReason: result.invalidReason!, payer };
       }
@@ -118,7 +125,12 @@ export async function verifyPermit2Allowance(
     if (erc20GasSponsorshipExtension) {
       const erc20Info = extractErc20ApprovalGasSponsoringInfo(payload);
       if (erc20Info) {
-        const result = await validateErc20ApprovalForPayment(erc20Info, payer, tokenAddress);
+        const result = await validateErc20ApprovalForPayment(
+          erc20Info,
+          payer,
+          tokenAddress,
+          permit2Address,
+        );
         if (!result.isValid) {
           return { isValid: false, invalidReason: result.invalidReason!, payer };
         }
@@ -131,7 +143,12 @@ export async function verifyPermit2Allowance(
     // Allowance check failed — validate extensions if present; fail closed if none valid
     const eip2612Info = extractEip2612GasSponsoringInfo(payload);
     if (eip2612Info) {
-      const result = validateEip2612PermitForPayment(eip2612Info, payer, tokenAddress);
+      const result = validateEip2612PermitForPayment(
+        eip2612Info,
+        payer,
+        tokenAddress,
+        permit2Address,
+      );
       if (!result.isValid) {
         return { isValid: false, invalidReason: result.invalidReason!, payer };
       }
@@ -145,7 +162,12 @@ export async function verifyPermit2Allowance(
     if (erc20GasSponsorshipExtension) {
       const erc20Info = extractErc20ApprovalGasSponsoringInfo(payload);
       if (erc20Info) {
-        const result = await validateErc20ApprovalForPayment(erc20Info, payer, tokenAddress);
+        const result = await validateErc20ApprovalForPayment(
+          erc20Info,
+          payer,
+          tokenAddress,
+          permit2Address,
+        );
         if (!result.isValid) {
           return { isValid: false, invalidReason: result.invalidReason!, payer };
         }
@@ -254,12 +276,14 @@ export function mapSettleError(
  * @param info - The EIP-2612 gas sponsoring info extracted from the payment payload
  * @param payer - The expected payer address
  * @param tokenAddress - The expected token address
+ * @param permit2Address - Trusted Permit2 deployment address
  * @returns Validation result with isValid flag and optional invalidReason string
  */
 export function validateEip2612PermitForPayment(
   info: Eip2612GasSponsoringInfo,
   payer: `0x${string}`,
   tokenAddress: `0x${string}`,
+  permit2Address: `0x${string}` = PERMIT2_ADDRESS,
 ): { isValid: boolean; invalidReason?: string } {
   if (!validateEip2612GasSponsoringInfo(info)) {
     return { isValid: false, invalidReason: ErrInvalidEip2612ExtensionFormat };
@@ -273,7 +297,7 @@ export function validateEip2612PermitForPayment(
     return { isValid: false, invalidReason: ErrEip2612AssetMismatch };
   }
 
-  if (getAddress(info.spender as `0x${string}`) !== getAddress(PERMIT2_ADDRESS)) {
+  if (getAddress(info.spender as `0x${string}`) !== getAddress(permit2Address)) {
     return { isValid: false, invalidReason: ErrEip2612SpenderNotPermit2 };
   }
 
@@ -402,6 +426,7 @@ export async function simulatePermit2SettleWithErc20Approval(
  * @param tokenAddress - ERC-20 token contract address
  * @param permit2Payload - The Permit2 authorization payload
  * @param amountRequired - Required payment amount (as string)
+ * @param permit2Address - Trusted Permit2 deployment address
  * @returns VerifyResponse with the most specific failure reason
  */
 export async function diagnosePermit2SimulationFailure(
@@ -410,6 +435,7 @@ export async function diagnosePermit2SimulationFailure(
   tokenAddress: `0x${string}`,
   permit2Payload: Permit2PayloadBase,
   amountRequired: string,
+  permit2Address: `0x${string}` = PERMIT2_ADDRESS,
 ): Promise<VerifyResponse> {
   const payer = permit2Payload.permit2Authorization.from;
 
@@ -429,7 +455,7 @@ export async function diagnosePermit2SimulationFailure(
       address: tokenAddress,
       abi: erc20AllowanceAbi,
       functionName: "allowance",
-      args: [payer, PERMIT2_ADDRESS],
+      args: [payer, permit2Address],
     },
   ];
 
@@ -439,6 +465,12 @@ export async function diagnosePermit2SimulationFailure(
     const [proxyResult, balanceResult, allowanceResult] = results;
 
     if (proxyResult.status === "failure") {
+      return { isValid: false, invalidReason: ErrPermit2ProxyNotDeployed, payer };
+    }
+    if (
+      proxyResult.status === "success" &&
+      getAddress(proxyResult.result as `0x${string}`) !== getAddress(permit2Address)
+    ) {
       return { isValid: false, invalidReason: ErrPermit2ProxyNotDeployed, payer };
     }
 
@@ -472,6 +504,7 @@ export async function diagnosePermit2SimulationFailure(
  * @param tokenAddress - ERC-20 token contract address
  * @param payer - The payer address
  * @param amountRequired - Required payment amount (as string)
+ * @param permit2Address - Trusted Permit2 deployment address
  * @returns VerifyResponse — valid if checks pass, otherwise the most specific failure
  */
 export async function checkPermit2Prerequisites(
@@ -480,6 +513,7 @@ export async function checkPermit2Prerequisites(
   tokenAddress: `0x${string}`,
   payer: `0x${string}`,
   amountRequired: string,
+  permit2Address: `0x${string}` = PERMIT2_ADDRESS,
 ): Promise<VerifyResponse> {
   const diagnosticCalls: ContractCall[] = [
     {
@@ -501,6 +535,12 @@ export async function checkPermit2Prerequisites(
     const [proxyResult, balanceResult] = results;
 
     if (proxyResult.status === "failure") {
+      return { isValid: false, invalidReason: ErrPermit2ProxyNotDeployed, payer };
+    }
+    if (
+      proxyResult.status === "success" &&
+      getAddress(proxyResult.result as `0x${string}`) !== getAddress(permit2Address)
+    ) {
       return { isValid: false, invalidReason: ErrPermit2ProxyNotDeployed, payer };
     }
 
@@ -620,6 +660,7 @@ export function splitEip2612Signature(signature: string): {
  * @param signer - The EVM client signer
  * @param x402Version - The x402 protocol version
  * @param paymentRequirements - The payment requirements
+ * @param permit2Address - Trusted Permit2 deployment address
  * @returns Promise resolving to a payment payload result
  */
 export async function createPermit2PayloadForProxy(
@@ -627,6 +668,7 @@ export async function createPermit2PayloadForProxy(
   signer: ClientEvmSigner,
   x402Version: number,
   paymentRequirements: PaymentRequirements,
+  permit2Address: `0x${string}` = PERMIT2_ADDRESS,
 ): Promise<PaymentPayloadResult> {
   const now = Math.floor(Date.now() / 1000);
   const nonce = createPermit2Nonce();
@@ -655,6 +697,7 @@ export async function createPermit2PayloadForProxy(
     signer,
     permit2Authorization,
     paymentRequirements,
+    permit2Address,
   );
 
   return {
@@ -670,17 +713,19 @@ export async function createPermit2PayloadForProxy(
  * @param signer - The EVM client signer
  * @param permit2Authorization - The Permit2 authorization parameters
  * @param requirements - The payment requirements
+ * @param permit2Address - Trusted Permit2 deployment address
  * @returns Promise resolving to the hex-encoded signature
  */
 async function signPermit2Authorization(
   signer: ClientEvmSigner,
   permit2Authorization: Permit2Authorization & { from: `0x${string}` },
   requirements: PaymentRequirements,
+  permit2Address: `0x${string}`,
 ): Promise<`0x${string}`> {
   const chainId = getEvmChainId(requirements.network);
 
   return await signer.signTypedData({
-    domain: { name: "Permit2", chainId, verifyingContract: PERMIT2_ADDRESS },
+    domain: { name: "Permit2", chainId, verifyingContract: permit2Address },
     types: permit2WitnessTypes,
     primaryType: "PermitWitnessTransferFrom",
     message: {

@@ -30,15 +30,17 @@ export type Erc20ApprovalTxSigner = Pick<ClientEvmSigner, "address"> & {
  * @param signer - The client EVM signer (must support signTransaction, getTransactionCount)
  * @param tokenAddress - The ERC-20 token contract address
  * @param chainId - The chain ID
+ * @param permit2Address - Trusted Permit2 deployment address
  * @returns The ERC-20 approval gas sponsoring info object
  */
 export async function signErc20ApprovalTransaction(
   signer: Erc20ApprovalTxSigner,
   tokenAddress: `0x${string}`,
   chainId: number,
+  permit2Address: `0x${string}` = PERMIT2_ADDRESS,
 ): Promise<Erc20ApprovalGasSponsoringInfo> {
   const from = signer.address;
-  const spender = getAddress(PERMIT2_ADDRESS);
+  const spender = getAddress(permit2Address);
 
   // Encode approve(PERMIT2_ADDRESS, MaxUint256) calldata
   const data = encodeFunctionData({

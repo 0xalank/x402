@@ -8,12 +8,17 @@ import {
   ERC20_APPROVAL_GAS_SPONSORING_KEY,
 } from "../../exact/extensions";
 import { getAddress } from "viem";
-import { PERMIT2_ADDRESS, erc20AllowanceAbi } from "../../constants";
+import { erc20AllowanceAbi } from "../../constants";
+import { resolveExactEvmContractAddresses } from "../../contracts";
 import { getEvmChainId } from "../../utils";
 import { ClientEvmSigner } from "../../signer";
 import { signEip2612Permit } from "../../exact/client/eip2612";
 import { signErc20ApprovalTransaction } from "../../exact/client/erc20approval";
-import { resolveExtensionRpcCapabilities, type ExactEvmSchemeOptions } from "../rpc";
+import {
+  resolveEvmSchemeConfig,
+  resolveExtensionRpcCapabilities,
+  type ExactEvmSchemeOptions,
+} from "../rpc";
 
 /**
  * Attempts to sign an EIP-2612 permit for gasless Permit2 approval.
@@ -53,13 +58,18 @@ export async function trySignEip2612PermitExtension(
   const chainId = getEvmChainId(requirements.network);
   const tokenAddress = getAddress(requirements.asset) as `0x${string}`;
   const requiredAllowance = approvalAmount ?? requirements.amount;
+  const contracts = resolveExactEvmContractAddresses(
+    requirements.network,
+    resolveEvmSchemeConfig(requirements.network, options)?.contracts,
+    requirements.asset,
+  );
 
   try {
     const allowance = (await capabilities.readContract({
       address: tokenAddress,
       abi: erc20AllowanceAbi,
       functionName: "allowance",
-      args: [signer.address, PERMIT2_ADDRESS],
+      args: [signer.address, contracts.permit2],
     })) as bigint;
 
     if (allowance >= BigInt(requiredAllowance)) {
@@ -86,6 +96,7 @@ export async function trySignEip2612PermitExtension(
     chainId,
     deadline,
     requiredAllowance,
+    contracts.permit2,
   );
 
   return {
@@ -127,13 +138,18 @@ export async function trySignErc20ApprovalExtension(
   const chainId = getEvmChainId(requirements.network);
   const tokenAddress = getAddress(requirements.asset) as `0x${string}`;
   const requiredAllowance = approvalAmount ?? requirements.amount;
+  const contracts = resolveExactEvmContractAddresses(
+    requirements.network,
+    resolveEvmSchemeConfig(requirements.network, options)?.contracts,
+    requirements.asset,
+  );
 
   try {
     const allowance = (await capabilities.readContract({
       address: tokenAddress,
       abi: erc20AllowanceAbi,
       functionName: "allowance",
-      args: [signer.address, PERMIT2_ADDRESS],
+      args: [signer.address, contracts.permit2],
     })) as bigint;
 
     if (allowance >= BigInt(requiredAllowance)) {
@@ -152,6 +168,7 @@ export async function trySignErc20ApprovalExtension(
     },
     tokenAddress,
     chainId,
+    contracts.permit2,
   );
 
   return {

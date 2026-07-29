@@ -23,6 +23,7 @@ export type Eip2612PermitSigner = Pick<ClientEvmSigner, "address" | "signTypedDa
  * @param chainId - The chain ID
  * @param deadline - The deadline for the permit (unix timestamp as string)
  * @param permittedAmount - The Permit2 permitted amount (must match exactly)
+ * @param permit2Address - Trusted Permit2 deployment address
  * @returns The EIP-2612 gas sponsoring info object
  */
 export async function signEip2612Permit(
@@ -33,9 +34,10 @@ export async function signEip2612Permit(
   chainId: number,
   deadline: string,
   permittedAmount: string,
+  permit2Address: `0x${string}` = PERMIT2_ADDRESS,
 ): Promise<Eip2612GasSponsoringInfo> {
   const owner = signer.address;
-  const spender = getAddress(PERMIT2_ADDRESS);
+  const spender = getAddress(permit2Address);
 
   // Query the current EIP-2612 nonce from the token contract
   const nonce = (await signer.readContract({
