@@ -151,6 +151,47 @@ forge script script/Deploy.s.sol --rpc-url <RPC_URL> --broadcast
 > and will produce a different deployment address. The Exact contract's pre-built initCode
 > already encodes the canonical Permit2 address and cannot be overridden.
 
+## Quai zone deployments
+
+Quai uses Solidity 0.8.19-compatible deployment bytecode and `quai_*` RPC.
+Its zones share one chain ID, so Permit2 contracts are configured by token
+address zone rather than by chain ID alone. The canonical EVM addresses above
+are not assumed to contain code on Quai.
+
+The Quai stack contains:
+
+- Uniswap Permit2, compiled from the canonical 0.8.17 source.
+- `x402QuaiExactPermit2Proxy`, which preserves the exact proxy ABI and witness
+  semantics while using a Solidity 0.8.19 storage reentrancy guard.
+- `x402NativeQuaiEscrow`, for optional facilitator-sponsored native QUAI.
+
+Build:
+
+```bash
+git submodule update --init --recursive lib/permit2
+forge build src/x402NativeQuaiEscrow.sol src/x402QuaiExactPermit2Proxy.sol \
+  --use 0.8.19 --evm-version paris --out out-quai
+forge build lib/permit2/src/Permit2.sol \
+  --use 0.8.17 --evm-version paris --via-ir --out out-quai-permit2
+forge test --match-path 'test/x402*Quai*.t.sol'
+```
+
+Deploy once for each supported zone through `quais`:
+
+```bash
+cd ../../typescript
+QUAI_RPC_URL=https://rpc.quai.network \
+QUAI_PRIVATE_KEY=0x... \
+pnpm --filter @x402/quai contracts:deploy
+```
+
+`QUAI_PRIVATE_KEY` selects the zone. Set `QUAI_PERMIT2_ADDRESS` to reuse an
+existing Permit2 contract in that same zone. Record all returned addresses in
+the client and facilitator's trusted zone map. The command verifies all runtime
+bytecode and the proxy's Permit2 wiring before returning. Verify the source on
+Quaiscan using the exact compiler version and standard JSON input from these
+builds.
+
 ## Testing
 
 ```bash

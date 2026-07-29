@@ -35,6 +35,7 @@ This page tracks which features are implemented in each SDK (TypeScript, Go, Pyt
 | hedera | ✅ | ❌ | ❌ |
 | keeta | ✅ | ❌ | ❌ |
 | near | ✅ | ❌ | ❌ |
+| quai | ✅ | ❌ | ❌ |
 | ccd (Concordium) | ✅ | ❌ | ❌ |
 | xrpl | ✅ | ❌ | ❌ |
 
@@ -44,6 +45,7 @@ This page tracks which features are implemented in each SDK (TypeScript, Go, Pyt
 |--------|---------|------------------------|------------|-----|--------|
 | exact | evm | `eip3009` | ✅ | ✅ | ✅ |
 | exact | evm | `permit2` | ✅ | ✅ | ✅ |
+| exact | evm on Quai | `eip3009` or `permit2` | ✅ | ❌ | ❌ |
 | exact | svm | - | ✅ | ✅ | ✅ |
 | exact | avm | - | ✅ | ❌ | ❌ |
 | exact | stellar | - | ✅ | ❌ | ❌ |
@@ -52,6 +54,7 @@ This page tracks which features are implemented in each SDK (TypeScript, Go, Pyt
 | exact | tvm | - | ✅ | ❌ | ✅ |
 | exact | keeta | - | ✅ | ❌ | ❌ |
 | exact | near | - | ✅ | ❌ | ❌ |
+| exact | quai | direct or escrow QUAI; direct QI | ✅ | ❌ | ❌ |
 | exact | ccd (Concordium) | sponsored V1 | ✅ | ❌ | ❌ |
 | exact | xrpl | `sequence` | ✅ | ❌ | ❌ |
 | exact | xrpl | `ticketSequence` | ✅ | ❌ | ❌ |
