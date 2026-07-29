@@ -7,6 +7,8 @@ import type {
   SupportedKind,
 } from "@x402/core/types";
 import { QI_ASSET, QUAI_ASSET } from "../../constants";
+import { resolveSponsoredQuaiContract, SPONSORED_QUAI_METHOD } from "../../sponsored";
+import type { QuaiSponsoredContracts } from "../../types";
 import {
   getQiDenominationIndex,
   isQuaiAsset,
@@ -20,6 +22,8 @@ import {
  */
 export class ExactQuaiScheme implements SchemeNetworkServer {
   readonly scheme = "exact";
+
+  constructor(private readonly sponsoredQuaiContracts?: QuaiSponsoredContracts) {}
 
   /**
    * Parses explicit QUAI or QI pricing.
@@ -52,11 +56,34 @@ export class ExactQuaiScheme implements SchemeNetworkServer {
    */
   enhancePaymentRequirements(
     requirements: PaymentRequirements,
-    _supportedKind: SupportedKind,
+    supportedKind: SupportedKind,
     _extensionKeys: string[],
   ): Promise<PaymentRequirements> {
     if (!isQuaiAsset(requirements.asset)) throw new Error("Unsupported Quai asset");
-    requireAssetAddress(requirements.payTo, requirements.asset);
+    const zone = requireAssetAddress(requirements.payTo, requirements.asset);
+    const sponsoredZones = supportedKind.extra?.sponsoredZones;
+    if (
+      requirements.asset === QUAI_ASSET &&
+      requirements.extra?.areFeesSponsored !== false &&
+      supportedKind.extra?.areFeesSponsored === true &&
+      supportedKind.extra?.assetTransferMethod === SPONSORED_QUAI_METHOD &&
+      Array.isArray(sponsoredZones) &&
+      sponsoredZones.includes(zone)
+    ) {
+      const settlementContract = resolveSponsoredQuaiContract(
+        this.sponsoredQuaiContracts,
+        requirements,
+      );
+      return Promise.resolve({
+        ...requirements,
+        extra: {
+          ...requirements.extra,
+          areFeesSponsored: true,
+          assetTransferMethod: SPONSORED_QUAI_METHOD,
+          settlementContract,
+        },
+      });
+    }
     return Promise.resolve({
       ...requirements,
       extra: { ...requirements.extra, areFeesSponsored: false },

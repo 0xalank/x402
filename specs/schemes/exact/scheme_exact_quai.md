@@ -3,20 +3,21 @@
 ## Summary
 
 The `exact` scheme on Quai transfers a specific amount of either native QUAI or
-native QI from a client to a resource server. The client signs a complete Quai
-transaction and the facilitator verifies and broadcasts it without being able
-to change its destination or amount.
+native QI from a client to a resource server. Direct payments use a complete
+payer-signed Quai transaction. Native QUAI MAY instead use an escrow
+authorization that lets the facilitator pay settlement gas without being able
+to change the destination or amount. Native QI remains direct only.
 
 Quai has two native ledgers:
 
-| Asset | Ledger | Transaction type | Signature |
-| --- | --- | --- | --- |
-| QUAI | Account based | Type 0 | ECDSA |
-| QI | UTXO based | Type 2 | Schnorr or MuSig |
+| Asset | Ledger        | Transaction type | Signature        |
+| ----- | ------------- | ---------------- | ---------------- |
+| QUAI  | Account based | Type 0           | ECDSA            |
+| QI    | UTXO based    | Type 2           | Schnorr or MuSig |
 
-Both transaction types use Quai's canonical protobuf encoding. The payer pays
-the network fee, so `PaymentRequirements.extra.areFeesSponsored` MUST be
-`false`.
+Direct transaction types use Quai's canonical protobuf encoding and set
+`PaymentRequirements.extra.areFeesSponsored` to `false`. Sponsored native QUAI
+uses the separate escrow method defined below and sets it to `true`.
 
 This version supports same-zone transfers. A later version may define
 cross-zone settlement after specifying destination-zone finality.
@@ -25,9 +26,9 @@ cross-zone settlement after specifying destination-zone finality.
 
 Quai networks use the `quai` CAIP-2 namespace:
 
-| Network | Identifier |
-| --- | --- |
-| Quai Mainnet | `quai:9` |
+| Network         | Identifier   |
+| --------------- | ------------ |
+| Quai Mainnet    | `quai:9`     |
 | Orchard Testnet | `quai:15000` |
 
 The zone is derived from transaction addresses and MUST NOT be appended to the
@@ -35,17 +36,47 @@ network identifier.
 
 Native assets use their registered SLIP-44 coin types:
 
-| Asset | Identifier | Atomic unit |
-| --- | --- | --- |
-| QUAI | `slip44:994` | wei, 10^-18 QUAI |
-| QI | `slip44:969` | qit, 10^-3 QI |
+| Asset | Identifier   | Atomic unit      |
+| ----- | ------------ | ---------------- |
+| QUAI  | `slip44:994` | wei, 10^-18 QUAI |
+| QI    | `slip44:969` | qit, 10^-3 QI    |
 
 The asset determines the required ledger and transaction type. Implementations
 MUST NOT add a separate ledger or transaction-type selector.
 
+### ERC-20 assets on Quai
+
+ERC-20 assets on the Quai account ledger use the existing
+[`exact` EVM scheme](scheme_exact_evm.md), not the native payload defined in
+this document:
+
+| Quai environment | EVM network    |
+| ---------------- | -------------- |
+| Mainnet          | `eip155:9`     |
+| Orchard Testnet  | `eip155:15000` |
+
+`asset` is the ERC-20 contract address. EIP-3009 and Permit2 payloads retain
+their standard EVM wire format. An implementation MAY adapt signing and RPC
+transport to Quai's protobuf transactions and `quai_*` namespace without
+changing the x402 payload.
+
+Quai zones share one chain ID. Permit2 and its exact proxy MUST therefore be
+resolved by the zone encoded in the asset contract address, not by chain ID
+alone. The token, Permit2, and proxy deployments MUST be in that same zone.
+
+For the `erc20ApprovalGasSponsoring` extension, the extension object is
+unchanged, but `info.signedTransaction` contains a canonical signed Quai
+protobuf type 0 transaction instead of Ethereum RLP. The facilitator MUST
+authenticate its chain ID and recovered sender, require a same-zone call to the
+advertised token, and validate `approve(configuredPermit2, amount)`. A
+facilitator MUST NOT advertise this extension unless it can simulate and submit
+the approval and settlement sequence as one ordered atomic bundle. If the
+payer needs gas funding, that is an executor concern outside the x402
+transaction list.
+
 ## Payment requirements
 
-### QUAI
+### Direct QUAI
 
 ```json
 {
@@ -64,6 +95,52 @@ MUST NOT add a separate ledger or transaction-type selector.
 `amount` MUST be a positive base-10 integer containing the exact number of wei
 and MUST fit in an unsigned 256-bit value.
 `payTo` MUST be a valid Quai-ledger address.
+
+### Sponsored QUAI
+
+```json
+{
+  "scheme": "exact",
+  "network": "quai:9",
+  "asset": "slip44:994",
+  "amount": "1000000000000000",
+  "payTo": "0x0000000000000000000000000000000000000001",
+  "maxTimeoutSeconds": 60,
+  "extra": {
+    "areFeesSponsored": true,
+    "assetTransferMethod": "escrow",
+    "settlementContract": "0x0000000000000000000000000000000000000003"
+  }
+}
+```
+
+The payer MUST have deposited at least `amount` wei into `settlementContract`
+before signing. The contract, payer, and `payTo` MUST be valid Quai-ledger
+addresses in the same zone. A resource server MAY offer direct and sponsored
+QUAI as separate entries in `accepts`.
+
+Facilitator capability metadata for sponsored QUAI MUST include
+`extra.sponsoredZones`, an array of zones for which the facilitator has both a
+trusted escrow and a settlement signer. A resource server MUST select
+sponsorship only when the `payTo` zone appears in that array.
+
+```json
+{
+  "x402Version": 2,
+  "scheme": "exact",
+  "network": "quai:9",
+  "extra": {
+    "areFeesSponsored": true,
+    "assetTransferMethod": "escrow",
+    "sponsoredZones": ["0x00"]
+  }
+}
+```
+
+`settlementContract` is selected from trusted local configuration. Clients and
+facilitators MUST reject an advertised address that differs from their
+configured contract for the network and zone. One escrow contract is deployed
+per supported zone.
 
 ### QI
 
@@ -101,11 +178,13 @@ NOT allocate a new address merely because the paid retry is a new HTTP request.
 
 ## Payment payload
 
+### Direct QUAI and QI
+
 The `payload` field of `PaymentPayload` MUST contain:
 
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `signedTransaction` | string | Yes | `0x`-prefixed canonical protobuf encoding of the signed transaction |
+| Field               | Type   | Required | Description                                                         |
+| ------------------- | ------ | -------- | ------------------------------------------------------------------- |
+| `signedTransaction` | string | Yes      | `0x`-prefixed canonical protobuf encoding of the signed transaction |
 
 Example:
 
@@ -129,13 +208,60 @@ Example:
 }
 ```
 
+### Sponsored QUAI
+
+Sponsored QUAI reuses the EIP-3009 authorization shape:
+
+```json
+{
+  "x402Version": 2,
+  "accepted": {
+    "scheme": "exact",
+    "network": "quai:9",
+    "asset": "slip44:994",
+    "amount": "1000000000000000",
+    "payTo": "0x0000000000000000000000000000000000000001",
+    "maxTimeoutSeconds": 60,
+    "extra": {
+      "areFeesSponsored": true,
+      "assetTransferMethod": "escrow",
+      "settlementContract": "0x0000000000000000000000000000000000000003"
+    }
+  },
+  "payload": {
+    "signature": "0x...",
+    "authorization": {
+      "from": "0x0000000000000000000000000000000000000002",
+      "to": "0x0000000000000000000000000000000000000001",
+      "value": "1000000000000000",
+      "validAfter": "1770000000",
+      "validBefore": "1770000060",
+      "nonce": "0x..."
+    }
+  }
+}
+```
+
+The EIP-712 domain is:
+
+| Field               | Value                            |
+| ------------------- | -------------------------------- |
+| `name`              | `x402 Native QUAI`               |
+| `version`           | `1`                              |
+| `chainId`           | Numeric reference from `network` |
+| `verifyingContract` | `extra.settlementContract`       |
+
+Version 1 accepts a canonical 65-byte ECDSA signature from an externally owned
+Quai account. The signed authorization binds the payer, receiver, exact wei
+amount, validity interval, nonce, network, and escrow contract.
+
 ## Verification
 
 A facilitator MUST fail closed if any required check cannot be completed.
 
 ### Envelope checks
 
-For both assets, the facilitator MUST verify:
+For direct QUAI and QI, the facilitator MUST verify:
 
 1. `paymentPayload.x402Version` is `2`.
 2. `paymentPayload.accepted.scheme` and `paymentRequirements.scheme` are
@@ -143,7 +269,7 @@ For both assets, the facilitator MUST verify:
 3. Both network values are identical supported `quai` CAIP-2 identifiers.
 4. Both asset values are identical and are `slip44:994` or `slip44:969`.
 5. `amount`, `payTo`, and `maxTimeoutSeconds` match exactly.
-6. Both `extra.areFeesSponsored` values are `false`.
+6. For direct QUAI and QI, both `extra.areFeesSponsored` values are `false`.
 7. `signedTransaction` is a `0x`-prefixed protobuf transaction with no unknown
    fields or trailing bytes, and decoding then canonically re-encoding the
    typed transaction produces the same bytes.
@@ -152,9 +278,9 @@ For both assets, the facilitator MUST verify:
 9. The transaction is signed and its hash has not already been settled or
    claimed by another in-flight settlement.
 
-### QUAI verification
+### Direct QUAI verification
 
-For `asset = "slip44:994"`, the facilitator MUST verify:
+For direct `asset = "slip44:994"`, the facilitator MUST verify:
 
 1. The transaction is type 0.
 2. The ECDSA signature is canonical and recovers the transaction sender.
@@ -172,6 +298,32 @@ For `asset = "slip44:994"`, the facilitator MUST verify:
 The facilitator MUST derive the `payer` returned by `/verify` from the
 transaction signature. It MUST NOT accept a payer supplied separately by the
 client.
+
+### Sponsored QUAI verification
+
+For sponsored native QUAI, the facilitator MUST verify:
+
+1. `paymentPayload.x402Version` is `2`; both schemes are `exact`; and both
+   networks are the same supported `quai` identifier.
+2. Both requirements select `asset = "slip44:994"`,
+   `extra.areFeesSponsored = true`, and
+   `extra.assetTransferMethod = "escrow"`.
+3. `amount`, `payTo`, `maxTimeoutSeconds`, and `settlementContract` match
+   exactly between `accepted` and the server requirements.
+4. The settlement contract equals the facilitator's trusted deployment for
+   the selected network and `payTo` zone and has deployed bytecode.
+5. `authorization.from`, `authorization.to`, and the settlement contract are
+   Quai-ledger addresses in the same active zone.
+6. `authorization.to` equals `payTo` and `authorization.value` equals
+   `amount`.
+7. The validity interval is active and leaves sufficient time for inclusion.
+8. The EIP-712 signature is canonical, uses the domain above, and recovers
+   `authorization.from`.
+9. The authorization nonce is unused.
+10. Simulating `settlementContract.transferWithAuthorization(...)` succeeds,
+   including the escrow-balance and native-transfer checks.
+
+The recovered `authorization.from` is the `payer` returned by `/verify`.
 
 ### QI verification
 
@@ -221,6 +373,8 @@ Successful QI verification:
 
 ## Settlement
 
+### Direct QUAI and QI
+
 The facilitator MUST:
 
 1. Atomically acquire an exclusive settlement claim keyed by the signed
@@ -244,6 +398,17 @@ inclusion, and resubmit the same signed bytes. Concurrent callers MUST NOT
 settle the same payment twice, and a retry MUST NOT substitute another
 transaction.
 
+### Sponsored QUAI
+
+The facilitator MUST re-run sponsored verification and then call
+`settlementContract.transferWithAuthorization` with the unchanged
+authorization and signature. The facilitator pays the transaction gas. The
+contract MUST mark the nonce used before transferring exactly `amount` wei to
+`payTo`, and the facilitator MUST wait for successful same-zone inclusion.
+
+The settlement transaction hash is returned in `transaction`; `network`
+remains the original `quai:*` identifier.
+
 Successful settlement:
 
 ```json
@@ -260,23 +425,25 @@ Successful settlement:
 
 Implementations SHOULD use stable error tokens:
 
-| Error | Meaning |
-| --- | --- |
-| `invalid_exact_quai_asset` | Unsupported native asset |
-| `invalid_exact_quai_network` | Unsupported or mismatched network |
-| `invalid_exact_quai_encoding` | Invalid or non-canonical protobuf |
-| `invalid_exact_quai_transaction_type` | Asset and transaction type differ |
-| `invalid_exact_quai_signature` | ECDSA, Schnorr, or MuSig verification failed |
-| `invalid_exact_quai_destination` | Payment destination differs |
-| `invalid_exact_quai_amount` | Payment amount differs |
-| `invalid_exact_quai_zone` | Transfer is not same-zone or zone is inactive |
-| `invalid_exact_quai_nonce` | QUAI nonce is not the next pending nonce |
-| `invalid_exact_quai_input` | QI input is missing, spent, locked, duplicated, or unauthorized |
-| `invalid_exact_quai_output` | QI output violates denomination, address, or lock rules |
-| `invalid_exact_quai_fee` | Network fee is insufficient |
-| `invalid_exact_quai_transaction_state` | Transaction is already pending, spent, or settled |
-| `invalid_exact_quai_simulation` | Network simulation failed |
-| `invalid_exact_quai_settlement` | Broadcast or inclusion failed |
+| Error                                  | Meaning                                                         |
+| -------------------------------------- | --------------------------------------------------------------- |
+| `invalid_exact_quai_asset`             | Unsupported native asset                                        |
+| `invalid_exact_quai_network`           | Unsupported or mismatched network                               |
+| `invalid_exact_quai_encoding`          | Invalid or non-canonical protobuf                               |
+| `invalid_exact_quai_transaction_type`  | Asset and transaction type differ                               |
+| `invalid_exact_quai_signature`         | ECDSA, Schnorr, or MuSig verification failed                    |
+| `invalid_exact_quai_destination`       | Payment destination differs                                     |
+| `invalid_exact_quai_amount`            | Payment amount differs                                          |
+| `invalid_exact_quai_zone`              | Transfer is not same-zone or zone is inactive                   |
+| `invalid_exact_quai_payer_zone`        | Sponsored payer is not in the escrow zone                       |
+| `invalid_exact_quai_sponsorship`       | Sponsored method or contract selection is invalid               |
+| `invalid_exact_quai_nonce`             | QUAI nonce is not the next pending nonce                        |
+| `invalid_exact_quai_input`             | QI input is missing, spent, locked, duplicated, or unauthorized |
+| `invalid_exact_quai_output`            | QI output violates denomination, address, or lock rules         |
+| `invalid_exact_quai_fee`               | Network fee is insufficient                                     |
+| `invalid_exact_quai_transaction_state` | Transaction is already pending, spent, or settled               |
+| `invalid_exact_quai_simulation`        | Network simulation failed                                       |
+| `invalid_exact_quai_settlement`        | Broadcast or inclusion failed                                   |
 
 ## Security considerations
 
@@ -292,11 +459,26 @@ Verification alone MUST NOT permanently consume a transaction hash. A
 successfully verified payload must remain eligible for the immediately
 following settlement request.
 
-### Payer-funded fees
+### Direct payer-funded fees
 
 The signed transaction commits the payer to the network fee. The facilitator
 MUST NOT add, replace, or sponsor transaction fees and MUST reject
-`areFeesSponsored` values other than `false`.
+`areFeesSponsored` values other than `false` for direct QUAI and QI.
+
+### Sponsored QUAI escrow
+
+Sponsored QUAI is not a relayed complete Quai transaction. The payer first
+deposits QUAI into a same-zone escrow and later signs bounded
+`transferWithAuthorization` messages. This distinction is required because
+broadcasting a complete payer-signed type 0 transaction does not move its gas
+cost to the broadcaster.
+
+The escrow MUST prevent nonce replay, reject non-canonical signatures, update
+state before the external native transfer, and provide a guarded withdrawal
+path for unused deposits. A payer can withdraw or spend escrowed balance after
+verification and before settlement, just as an ERC-20 payer can move token
+balance during that interval. Resource servers that deliver value before
+settlement accept this race and SHOULD keep the interval short.
 
 ### QI address reuse
 

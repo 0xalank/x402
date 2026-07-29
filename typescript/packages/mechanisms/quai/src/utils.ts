@@ -37,7 +37,7 @@ export type DecodedQuaiPayment =
  * @param network - Network identifier
  * @returns Whether the network is supported
  */
-export function isQuaiNetwork(network: Network): network is QuaiNetwork {
+export function isQuaiNetwork(network: string): network is QuaiNetwork {
   return network === QUAI_MAINNET || network === QUAI_ORCHARD;
 }
 

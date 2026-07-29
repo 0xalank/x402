@@ -6,6 +6,7 @@ const baseConfig = {
     "exact/client/index": "src/exact/client/index.ts",
     "exact/server/index": "src/exact/server/index.ts",
     "exact/facilitator/index": "src/exact/facilitator/index.ts",
+    evm: "src/evm.ts",
   },
   dts: { resolve: true },
   sourcemap: true,

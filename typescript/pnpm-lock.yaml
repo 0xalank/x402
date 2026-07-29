@@ -1590,6 +1590,9 @@ importers:
       '@x402/core':
         specifier: workspace:~
         version: link:../../core
+      '@x402/evm':
+        specifier: workspace:~
+        version: link:../evm
       quais:
         specifier: 1.0.0-alpha.55
         version: 1.0.0-alpha.55(bufferutil@4.0.9)(utf-8-validate@5.0.10)
@@ -1612,6 +1615,9 @@ importers:
       tsup:
         specifier: ^8.4.0
         version: 8.5.0(postcss@8.5.6)(tsx@4.21.0)(typescript@5.9.2)(yaml@2.8.1)
+      tsx:
+        specifier: ^4.21.0
+        version: 4.21.0
       typescript:
         specifier: ^5.7.3
         version: 5.9.2

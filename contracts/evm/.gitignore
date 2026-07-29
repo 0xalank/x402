@@ -1,5 +1,7 @@
 # Compiler output
 out/
+out-quai/
+out-quai-permit2/
 cache/
 
 # Environment

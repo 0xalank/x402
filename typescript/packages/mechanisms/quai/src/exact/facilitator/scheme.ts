@@ -6,6 +6,7 @@ import type {
   SettleResponse,
   VerifyResponse,
 } from "@x402/core/types";
+import { ExactEvmScheme as ExactEvmFacilitator } from "@x402/evm/exact/facilitator";
 import {
   N,
   denominations,
@@ -19,8 +20,16 @@ import {
   type Zone,
 } from "quais";
 import { QI_ASSET, QUAI_ASSET, QUAI_CAIP_FAMILY, QUAI_TRANSACTION_TYPE } from "../../constants";
+import { createQuaiEvmFacilitatorSigner } from "../../evm";
 import { InMemoryQuaiSettlementStore } from "../../settlement-store";
+import {
+  isSponsoredQuai,
+  resolveSponsoredQuaiContract,
+  toSponsoredEvmPayload,
+  toSponsoredEvmRequirements,
+} from "../../sponsored";
 import type {
+  ExactSponsoredQuaiPayload,
   QuaiFacilitatorOptions,
   QuaiSettlementClaim,
   QuaiSettlementStore,
@@ -60,23 +69,49 @@ export class ExactQuaiScheme implements SchemeNetworkFacilitator {
   ) {}
 
   /**
-   * Advertises payer-funded fees.
+   * Advertises the configured QUAI fee policy.
    *
    * @param _network - Quai network
    * @returns Scheme metadata
    */
   getExtra(_network: Network): Record<string, unknown> {
+    const accounts = this.sponsoredAccounts(_network);
+    if (accounts.length > 0) {
+      return {
+        areFeesSponsored: true,
+        assetTransferMethod: "escrow",
+        sponsoredZones: accounts.map(account => account.zone),
+      };
+    }
     return { areFeesSponsored: false };
   }
 
   /**
-   * Returns no facilitator signers because the payer funds fees.
+   * Returns the sponsored QUAI facilitator signer when configured.
    *
    * @param _network - Quai network
-   * @returns Empty signer list
+   * @returns Facilitator signer addresses
    */
   getSigners(_network: string): string[] {
-    return [];
+    return this.sponsoredAccounts(_network).map(account => account.address);
+  }
+
+  private sponsoredAccounts(network: string): { zone: Zone; address: `0x${string}` }[] {
+    const sponsored = this.options.sponsoredQuai;
+    if (!sponsored || !isQuaiNetwork(network)) return [];
+    const contracts = sponsored.contracts[network];
+    if (!contracts) return [];
+    return Object.entries(sponsored.facilitators).flatMap(([zone, account]) => {
+      const contract = contracts[zone as Zone];
+      return account &&
+        contract &&
+        isQuaiAddress(account.address) &&
+        getZoneForAddress(account.address) === zone &&
+        isQuaiAddress(contract) &&
+        getZoneForAddress(contract) === zone
+        ? [{ zone: zone as Zone, address: account.address }]
+        : [];
+    });
   }
 
   /**
@@ -90,6 +125,9 @@ export class ExactQuaiScheme implements SchemeNetworkFacilitator {
     payload: PaymentPayload,
     requirements: PaymentRequirements,
   ): Promise<VerifyResponse> {
+    if (requirements.extra?.areFeesSponsored === true) {
+      return this.verifySponsoredQuai(payload, requirements);
+    }
     return this.verifyPayment(payload, requirements, true);
   }
 
@@ -104,6 +142,9 @@ export class ExactQuaiScheme implements SchemeNetworkFacilitator {
     payload: PaymentPayload,
     requirements: PaymentRequirements,
   ): Promise<SettleResponse> {
+    if (requirements.extra?.areFeesSponsored === true) {
+      return this.settleSponsoredQuai(payload, requirements);
+    }
     const verification = await this.verify(payload, requirements);
     if (!verification.isValid) {
       if (verification.invalidReason === "invalid_exact_quai_transaction_state") {
@@ -144,6 +185,111 @@ export class ExactQuaiScheme implements SchemeNetworkFacilitator {
         await this.settlementStore.markRetryable(claim);
       }
       return settlementFailure(hash, requirements.network, finalVerification.payer, error);
+    }
+  }
+
+  private async sponsoredFacilitator(requirements: PaymentRequirements): Promise<{
+    facilitator: ExactEvmFacilitator;
+    requirements: PaymentRequirements;
+  }> {
+    const sponsored = this.options.sponsoredQuai;
+    if (!sponsored) throw new Error("Sponsored QUAI is not configured");
+    const contract = resolveSponsoredQuaiContract(sponsored.contracts, requirements);
+    const zone = getZoneForAddress(contract);
+    const account = zone ? sponsored.facilitators[zone] : undefined;
+    if (!account) throw new Error(`No sponsored QUAI facilitator configured for zone ${zone}`);
+    const provider = resolveProvider(this.options.provider, requirements.network);
+    const network = await provider.getNetwork();
+    if (network.chainId !== parseQuaiChainId(requirements.network)) {
+      throw new Error("Quai provider chain ID does not match payment requirements");
+    }
+    const signer = await createQuaiEvmFacilitatorSigner(account.signer, provider);
+    if (signer.getAddresses()[0].toLowerCase() !== account.address.toLowerCase()) {
+      throw new Error("Sponsored QUAI facilitator address mismatch");
+    }
+    const evmRequirements = toSponsoredEvmRequirements(requirements, contract);
+    return {
+      facilitator: new ExactEvmFacilitator(signer),
+      requirements: evmRequirements,
+    };
+  }
+
+  private verifySponsoredEnvelope(
+    payload: PaymentPayload,
+    requirements: PaymentRequirements,
+  ): string | undefined {
+    if (payload.x402Version !== 2) return "invalid_x402_version";
+    if (payload.accepted.scheme !== this.scheme || requirements.scheme !== this.scheme) {
+      return "unsupported_scheme";
+    }
+    if (
+      !isSponsoredQuai(requirements) ||
+      !isSponsoredQuai(payload.accepted) ||
+      !isQuaiNetwork(requirements.network) ||
+      payload.accepted.network !== requirements.network
+    ) {
+      return "invalid_exact_quai_sponsorship";
+    }
+    const acceptedContract = payload.accepted.extra?.settlementContract;
+    const requiredContract = requirements.extra?.settlementContract;
+    if (
+      payload.accepted.asset !== QUAI_ASSET ||
+      payload.accepted.amount !== requirements.amount ||
+      payload.accepted.payTo.toLowerCase() !== requirements.payTo.toLowerCase() ||
+      payload.accepted.maxTimeoutSeconds !== requirements.maxTimeoutSeconds ||
+      typeof acceptedContract !== "string" ||
+      typeof requiredContract !== "string" ||
+      acceptedContract.toLowerCase() !== requiredContract.toLowerCase()
+    ) {
+      return "invalid_exact_quai_requirements";
+    }
+    return undefined;
+  }
+
+  private async verifySponsoredQuai(
+    payload: PaymentPayload,
+    requirements: PaymentRequirements,
+  ): Promise<VerifyResponse> {
+    try {
+      const envelopeError = this.verifySponsoredEnvelope(payload, requirements);
+      if (envelopeError) return invalidVerify(envelopeError);
+      parsePositiveAmount(requirements.amount);
+      const inner = await this.sponsoredFacilitator(requirements);
+      const payer = (payload.payload as ExactSponsoredQuaiPayload).authorization?.from;
+      if (
+        !payer ||
+        !isQuaiAddress(payer) ||
+        getZoneForAddress(payer) !== getZoneForAddress(inner.requirements.asset)
+      ) {
+        return invalidVerify("invalid_exact_quai_payer_zone");
+      }
+      return inner.facilitator.verify(
+        toSponsoredEvmPayload(payload, inner.requirements),
+        inner.requirements,
+      );
+    } catch (error) {
+      return invalidVerify(
+        "invalid_exact_quai_facilitator_error",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  }
+
+  private async settleSponsoredQuai(
+    payload: PaymentPayload,
+    requirements: PaymentRequirements,
+  ): Promise<SettleResponse> {
+    const verification = await this.verifySponsoredQuai(payload, requirements);
+    if (!verification.isValid) return failedSettlement(payload, verification);
+    try {
+      const inner = await this.sponsoredFacilitator(requirements);
+      const result = await inner.facilitator.settle(
+        toSponsoredEvmPayload(payload, inner.requirements),
+        inner.requirements,
+      );
+      return { ...result, network: requirements.network };
+    } catch (error) {
+      return settlementFailure("", requirements.network, verification.payer, error);
     }
   }
 

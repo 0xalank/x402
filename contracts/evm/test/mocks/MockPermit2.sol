@@ -7,6 +7,10 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 contract MockPermit2 is ISignatureTransfer {
     mapping(address => mapping(uint256 => uint256)) public nonceBitmapStorage;
     bool public shouldActuallyTransfer;
+    address public lastOwner;
+    bytes32 public lastWitnessHash;
+    string public lastWitnessTypeString;
+    bytes public lastSignature;
 
     function nonceBitmap(address owner, uint256 wordPos) external view override returns (uint256) {
         return nonceBitmapStorage[owner][wordPos];
@@ -25,10 +29,14 @@ contract MockPermit2 is ISignatureTransfer {
         PermitTransferFrom memory permit,
         SignatureTransferDetails calldata transferDetails,
         address owner,
-        bytes32,
-        string calldata,
-        bytes calldata
+        bytes32 witnessHash,
+        string calldata witnessTypeString,
+        bytes calldata signature
     ) external override {
+        lastOwner = owner;
+        lastWitnessHash = witnessHash;
+        lastWitnessTypeString = witnessTypeString;
+        lastSignature = signature;
         uint256 wordPos = permit.nonce >> 8;
         uint256 bitPos = permit.nonce & 0xff;
         nonceBitmapStorage[owner][wordPos] |= (1 << bitPos);

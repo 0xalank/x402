@@ -1,5 +1,7 @@
 import { MuSigFactory } from "@brandonblack/musig";
 import type { PaymentRequirements } from "@x402/core/types";
+import type { ExactEIP3009Payload } from "@x402/evm";
+import { ExactEvmScheme } from "@x402/evm/exact/client";
 import {
   AddressStatus,
   FewestCoinSelector,
@@ -7,12 +9,19 @@ import {
   UTXO,
   denominations,
   getBytes,
+  getZoneForAddress,
   hexlify,
   musigCrypto,
   randomBytes,
   toShard,
 } from "quais";
 import { QI_ASSET, QUAI_ASSET, QUAI_TRANSACTION_TYPE } from "./constants";
+import { createQuaiEvmClientSigner } from "./evm";
+import {
+  isSponsoredQuai,
+  resolveSponsoredQuaiContract,
+  toSponsoredEvmRequirements,
+} from "./sponsored";
 import type { ClientQuaiSigner, QiWalletSignerConfig, QuaiPaymentSignerConfig } from "./types";
 import {
   getQiDenominationIndex,
@@ -49,6 +58,26 @@ export function createQuaiPaymentSigner(config: QuaiPaymentSignerConfig): Client
       }
       throw new Error(`Unsupported Quai asset: ${requirements.asset}`);
     },
+    async signSponsoredPayment(
+      x402Version: number,
+      requirements: PaymentRequirements,
+    ): Promise<ExactEIP3009Payload> {
+      if (!isSponsoredQuai(requirements)) {
+        throw new Error("Unsupported sponsored Quai payment");
+      }
+      if (!config.quai) throw new Error("No QUAI signer configured");
+      const contract = resolveSponsoredQuaiContract(config.sponsoredQuaiContracts, requirements);
+      const payer = await config.quai.getAddress();
+      if (getZoneForAddress(payer) !== getZoneForAddress(contract)) {
+        throw new Error("Sponsored QUAI payer and settlement contract must be in the same zone");
+      }
+      const signer = await createQuaiEvmClientSigner(config.quai);
+      const result = await new ExactEvmScheme(signer).createPaymentPayload(
+        x402Version,
+        toSponsoredEvmRequirements(requirements, contract),
+      );
+      return result.payload as ExactEIP3009Payload;
+    },
   };
 }
 
@@ -67,7 +96,7 @@ async function signQuaiPayment(
   const from = await signer.getAddress();
   const originZone = requireAssetAddress(from, QUAI_ASSET);
   if (requireAssetAddress(requirements.payTo, QUAI_ASSET) !== originZone) {
-    throw new Error("Quai exact v1 requires a same-zone payment");
+    throw new Error("Quai exact payments require a same-zone payment");
   }
 
   const transaction = await signer.populateQuaiTransaction({

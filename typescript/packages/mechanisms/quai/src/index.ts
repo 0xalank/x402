@@ -3,4 +3,6 @@ export * from "./types";
 export * from "./utils";
 export * from "./signer";
 export * from "./settlement-store";
+export * from "./sponsored";
 export * from "./exact";
+export * from "./evm";

@@ -34,6 +34,16 @@ export class ExactQuaiScheme implements SchemeNetworkClient {
     if (!isQuaiNetwork(requirements.network)) throw new Error("Unsupported Quai network");
     if (!isQuaiAsset(requirements.asset)) throw new Error("Unsupported Quai asset");
 
+    if (requirements.extra?.areFeesSponsored === true) {
+      if (!this.signer.signSponsoredPayment) {
+        throw new Error("No sponsored QUAI signer configured");
+      }
+      return {
+        x402Version,
+        payload: await this.signer.signSponsoredPayment(x402Version, requirements),
+      };
+    }
+
     return {
       x402Version,
       payload: { signedTransaction: await this.signer.signPayment(requirements) },
