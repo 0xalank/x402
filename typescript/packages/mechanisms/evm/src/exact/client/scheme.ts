@@ -13,6 +13,8 @@ import {
   trySignErc20ApprovalExtension,
 } from "../../shared/extensions";
 import { ExactEvmSchemeOptions } from "./rpc";
+import { resolveEvmSchemeConfig } from "../../shared/rpc";
+import { resolveExactEvmContractAddresses } from "../../contracts";
 
 /**
  * EVM client implementation for the Exact payment scheme.
@@ -65,7 +67,17 @@ export class ExactEvmScheme implements SchemeNetworkClient {
       (paymentRequirements.extra?.assetTransferMethod as AssetTransferMethod) ?? "eip3009";
 
     if (assetTransferMethod === "permit2") {
-      const result = await createPermit2Payload(this.signer, x402Version, paymentRequirements);
+      const contracts = resolveExactEvmContractAddresses(
+        paymentRequirements.network,
+        resolveEvmSchemeConfig(paymentRequirements.network, this.options)?.contracts,
+        paymentRequirements.asset,
+      );
+      const result = await createPermit2Payload(
+        this.signer,
+        x402Version,
+        paymentRequirements,
+        contracts,
+      );
 
       const eip2612Extensions = await trySignEip2612PermitExtension(
         this.signer,

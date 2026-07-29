@@ -582,6 +582,46 @@ describe("ExactEvmScheme (Facilitator)", () => {
       expect(mockFacilitatorSigner.writeContract).toHaveBeenCalled();
     });
 
+    it("should settle through configured Permit2 deployments on Quai", async () => {
+      const permit2 = "0x0000000000000000000000000000000000000009";
+      const exactPermit2Proxy = "0x0000000000000000000000000000000000000019";
+      const quaiFacilitator = new ExactEvmScheme(mockFacilitatorSigner, {
+        contracts: { 9: { permit2, exactPermit2Proxy } },
+      });
+      const requirements: PaymentRequirements = {
+        scheme: "exact",
+        network: "eip155:9",
+        amount: "1000000",
+        asset: "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+        payTo: "0x742D35CC6634c0532925A3b844BC9E7595F0BEb0",
+        maxTimeoutSeconds: 300,
+        extra: { assetTransferMethod: "permit2" },
+      };
+      const payload: PaymentPayload = {
+        x402Version: 2,
+        payload: {
+          signature: "0xmocksignature",
+          permit2Authorization: {
+            from: mockClientSigner.address,
+            permitted: { token: requirements.asset, amount: requirements.amount },
+            spender: exactPermit2Proxy,
+            nonce: "12345",
+            deadline: "999999999999",
+            witness: { to: requirements.payTo, validAfter: "0" },
+          },
+        },
+        accepted: requirements,
+      };
+      mockFacilitatorSigner.readContract = rcWithSig(undefined);
+
+      await expect(quaiFacilitator.settle(payload, requirements)).resolves.toMatchObject({
+        success: true,
+      });
+      expect(mockFacilitatorSigner.writeContract).toHaveBeenCalledWith(
+        expect.objectContaining({ address: exactPermit2Proxy, functionName: "settle" }),
+      );
+    });
+
     it("should fail Permit2 settlement when signature verification fails", async () => {
       const requirements: PaymentRequirements = {
         scheme: "exact",
@@ -1576,6 +1616,40 @@ describe("ExactEvmScheme (Facilitator)", () => {
       if (!result.isValid) {
         expect(result.invalidReason).not.toBe("permit2_allowance_required");
       }
+    });
+
+    it("should validate a network-native signed approval transaction", async () => {
+      const requirements: PaymentRequirements = {
+        ...erc20Requirements,
+        network: "eip155:9",
+      };
+      const transactionParser = vi.fn().mockReturnValue({
+        from: PAYER,
+        to: TOKEN_ADDRESS,
+        data: APPROVE_CALLDATA,
+      });
+      const quaiFacilitator = new ExactEvmScheme(mockFacilitatorSigner, {
+        approvalTransactionParser: transactionParser,
+      });
+      const payload: PaymentPayload = {
+        ...makeErc20Permit2Payload(makeValidErc20Extension()),
+        accepted: requirements,
+      };
+      const context = {
+        getExtension: vi.fn().mockReturnValue({
+          key: ERC20_APPROVAL_GAS_SPONSORING_KEY,
+          signer: {
+            ...mockFacilitatorSigner,
+            sendTransactions: vi.fn(),
+            simulateTransactions: vi.fn().mockResolvedValue(true),
+          },
+        }),
+      };
+
+      await expect(quaiFacilitator.verify(payload, requirements, context)).resolves.toMatchObject({
+        isValid: true,
+      });
+      expect(transactionParser).toHaveBeenCalledWith(MOCK_SIGNED_TX, 9);
     });
 
     it("should reject when calldata targets wrong address (not PERMIT2_ADDRESS)", async () => {

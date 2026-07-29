@@ -1,9 +1,11 @@
 import { createPublicClient, http } from "viem";
 import type { ClientEvmSigner } from "../signer";
+import type { ExactEvmContractAddressConfig } from "../contracts";
 import { getEvmChainId } from "../utils";
 
 export type EvmSchemeConfig = {
   rpcUrl?: string;
+  contracts?: ExactEvmContractAddressConfig;
 };
 
 export type EvmSchemeConfigByChainId = Record<number, EvmSchemeConfig>;
@@ -62,6 +64,20 @@ function getRpcClient(rpcUrl: string): ReturnType<typeof createPublicClient> {
  * @returns The resolved RPC URL, or undefined if not configured
  */
 export function resolveRpcUrl(network: string, options?: EvmSchemeOptions): string | undefined {
+  return resolveEvmSchemeConfig(network, options)?.rpcUrl;
+}
+
+/**
+ * Resolves the complete client scheme configuration for a network.
+ *
+ * @param network - CAIP-2 EVM network identifier
+ * @param options - Flat or per-chain scheme configuration
+ * @returns The selected configuration, if present
+ */
+export function resolveEvmSchemeConfig(
+  network: string,
+  options?: EvmSchemeOptions,
+): EvmSchemeConfig | undefined {
   if (!options) {
     return undefined;
   }
@@ -69,10 +85,10 @@ export function resolveRpcUrl(network: string, options?: EvmSchemeOptions): stri
   if (isConfigByChainId(options)) {
     const chainId = getEvmChainId(network);
     const optionsByChainId = options as EvmSchemeConfigByChainId;
-    return optionsByChainId[chainId]?.rpcUrl;
+    return optionsByChainId[chainId];
   }
 
-  return (options as EvmSchemeConfig).rpcUrl;
+  return options as EvmSchemeConfig;
 }
 
 /**

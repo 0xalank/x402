@@ -350,6 +350,30 @@ describe("ExactEvmScheme (Client)", () => {
       expect(callArgs.domain.verifyingContract).toBe(PERMIT2_ADDRESS);
       expect(callArgs.primaryType).toBe("PermitWitnessTransferFrom");
     });
+
+    it("should use configured Permit2 deployments for Quai", async () => {
+      const permit2 = "0x0000000000000000000000000000000000000009";
+      const exactPermit2Proxy = "0x0000000000000000000000000000000000000019";
+      const quaiClient = new ExactEvmScheme(mockSigner, {
+        9: { contracts: { permit2, exactPermit2Proxy } },
+      });
+      const requirements: PaymentRequirements = {
+        scheme: "exact",
+        network: "eip155:9",
+        amount: "1000000",
+        asset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        payTo: "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb0",
+        maxTimeoutSeconds: 300,
+        extra: { assetTransferMethod: "permit2" },
+      };
+
+      const result = await quaiClient.createPaymentPayload(2, requirements);
+      const callArgs = (mockSigner.signTypedData as ReturnType<typeof vi.fn>).mock.calls[0][0];
+
+      expect(result.payload.permit2Authorization.spender).toBe(exactPermit2Proxy);
+      expect(callArgs.domain.verifyingContract).toBe(permit2);
+      expect(callArgs.domain.chainId).toBe(9);
+    });
   });
 });
 
@@ -370,6 +394,14 @@ describe("Permit2 Approval Helpers", () => {
 
       // approve(address,uint256) selector is 0x095ea7b3
       expect(tx.data.startsWith("0x095ea7b3")).toBe(true);
+    });
+
+    it("should encode a configured Permit2 spender", () => {
+      const tokenAddress = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" as `0x${string}`;
+      const permit2Address = "0x0000000000000000000000000000000000000009";
+      const tx = createPermit2ApprovalTx(tokenAddress, permit2Address);
+
+      expect(tx.data.toLowerCase()).toContain(permit2Address.slice(2).padStart(64, "0"));
     });
   });
 
@@ -398,6 +430,17 @@ describe("Permit2 Approval Helpers", () => {
 
       expect(params.abi).toBeDefined();
       expect(params.abi[0].name).toBe("allowance");
+    });
+
+    it("should read allowance for a configured Permit2 deployment", () => {
+      const permit2Address = "0x0000000000000000000000000000000000000009";
+      const params = getPermit2AllowanceReadParams({
+        tokenAddress: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        ownerAddress: "0x1234567890123456789012345678901234567890",
+        permit2Address,
+      });
+
+      expect(params.args[1]).toBe(permit2Address);
     });
   });
 });

@@ -16,6 +16,23 @@ export {
 // Signers
 export { toClientEvmSigner, toFacilitatorEvmSigner } from "./signer";
 export type { ClientEvmSigner, FacilitatorEvmSigner } from "./signer";
+export type { Erc20ApprovalGasSponsoringSigner, TransactionRequest } from "./exact/extensions";
+
+// Network-specific contract deployment configuration
+export {
+  DEFAULT_EXACT_EVM_CONTRACT_ADDRESSES,
+  resolveExactEvmContractAddresses,
+} from "./contracts";
+export type {
+  Erc20ApprovalTransactionParser,
+  ParsedErc20ApprovalTransaction,
+} from "./shared/erc20approval";
+export type {
+  ExactEvmContractAddresses,
+  ExactEvmContractAddressOverrides,
+  ExactEvmContractAddressConfig,
+  ExactEvmContractAddressResolver,
+} from "./contracts";
 
 // Types
 export type {

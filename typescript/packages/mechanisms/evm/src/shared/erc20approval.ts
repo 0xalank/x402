@@ -28,6 +28,17 @@ import {
 /** The approve(address,uint256) function selector */
 const APPROVE_SELECTOR = "0x095ea7b3";
 
+export interface ParsedErc20ApprovalTransaction {
+  from: `0x${string}`;
+  to: `0x${string}` | null;
+  data: `0x${string}`;
+}
+
+export type Erc20ApprovalTransactionParser = (
+  signedTransaction: `0x${string}`,
+  chainId: number,
+) => ParsedErc20ApprovalTransaction | Promise<ParsedErc20ApprovalTransaction>;
+
 /**
  * Validates ERC-20 approval extension data for a Permit2 payment.
  *
@@ -43,12 +54,18 @@ const APPROVE_SELECTOR = "0x095ea7b3";
  * @param info - The ERC-20 approval gas sponsoring info
  * @param payer - The expected payer address
  * @param tokenAddress - The expected token address
+ * @param permit2Address - Trusted Permit2 deployment address
+ * @param chainId - Expected EIP-155 chain ID
+ * @param transactionParser - Optional parser for a network-native transaction encoding
  * @returns Validation result with invalidReason and invalidMessage on failure
  */
 export async function validateErc20ApprovalForPayment(
   info: Erc20ApprovalGasSponsoringInfo,
   payer: `0x${string}`,
   tokenAddress: `0x${string}`,
+  permit2Address: `0x${string}` = PERMIT2_ADDRESS,
+  chainId?: number,
+  transactionParser?: Erc20ApprovalTransactionParser,
 ): Promise<Pick<VerifyResponse, "isValid" | "invalidReason" | "invalidMessage">> {
   if (!validateErc20ApprovalGasSponsoringInfo(info)) {
     return {
@@ -74,17 +91,28 @@ export async function validateErc20ApprovalForPayment(
     };
   }
 
-  if (getAddress(info.spender) !== getAddress(PERMIT2_ADDRESS)) {
+  if (getAddress(info.spender) !== getAddress(permit2Address)) {
     return {
       isValid: false,
       invalidReason: ErrErc20ApprovalSpenderNotPermit2,
-      invalidMessage: `Expected spender=${PERMIT2_ADDRESS}, got ${info.spender}`,
+      invalidMessage: `Expected spender=${permit2Address}, got ${info.spender}`,
     };
   }
 
   try {
     const serializedTx = info.signedTransaction as TransactionSerialized;
-    const tx = parseTransaction(serializedTx);
+    let tx: { to?: `0x${string}` | null; data?: `0x${string}` };
+    let parsedFrom: `0x${string}` | undefined;
+    if (transactionParser) {
+      if (chainId === undefined) {
+        throw new Error("A chain ID is required with a custom transaction parser");
+      }
+      const parsed = await transactionParser(serializedTx, chainId);
+      tx = parsed;
+      parsedFrom = parsed.from;
+    } else {
+      tx = parseTransaction(serializedTx);
+    }
 
     if (!tx.to || getAddress(tx.to) !== tokenAddress) {
       return {
@@ -109,11 +137,11 @@ export async function validateErc20ApprovalForPayment(
         data: data as `0x${string}`,
       });
       const calldataSpender = getAddress(decoded.args[0] as `0x${string}`);
-      if (calldataSpender !== getAddress(PERMIT2_ADDRESS)) {
+      if (calldataSpender !== getAddress(permit2Address)) {
         return {
           isValid: false,
           invalidReason: ErrErc20ApprovalTxWrongSpender,
-          invalidMessage: `approve() spender is ${calldataSpender}, expected Permit2 ${PERMIT2_ADDRESS}`,
+          invalidMessage: `approve() spender is ${calldataSpender}, expected Permit2 ${permit2Address}`,
         };
       }
     } catch {
@@ -125,9 +153,11 @@ export async function validateErc20ApprovalForPayment(
     }
 
     try {
-      const recoveredAddress = await recoverTransactionAddress({
-        serializedTransaction: serializedTx,
-      });
+      const recoveredAddress =
+        parsedFrom ??
+        (await recoverTransactionAddress({
+          serializedTransaction: serializedTx,
+        }));
       if (getAddress(recoveredAddress) !== getAddress(payer)) {
         return {
           isValid: false,

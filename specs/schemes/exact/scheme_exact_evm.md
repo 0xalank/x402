@@ -88,11 +88,16 @@ Settlement is performed via the facilitator calling the `transferWithAuthorizati
 
 ## 2. AssetTransferMethod: `Permit2`
 
-This asset transfer method uses the `permitWitnessTransferFrom` from the [canonical **Permit2** contract](#canonical-permit2) combined with a [`x402ExactPermit2Proxy`](#reference-implementation-x402ExactPermit2Proxy) to enforce receiver address security via the "Witness" pattern.
+This asset transfer method uses `permitWitnessTransferFrom` from a trusted
+[Permit2 deployment](#canonical-permit2) combined with a trusted
+[`x402ExactPermit2Proxy`](#reference-implementation-x402ExactPermit2Proxy)
+deployment to enforce receiver address security via the "Witness" pattern.
 
 ### Phase 1: One-Time Gas Approval
 
-Permit2 requires the user to approve the [**Permit2 Contract** (Canonical Address)](#canonical-permit2) to spend their tokens. This is a one-time setup. The specification supports three ways to handle this:
+Permit2 requires the user to approve the configured
+[Permit2 contract](#canonical-permit2) to spend their tokens. This is a
+one-time setup. The specification supports three ways to handle this:
 
 #### Option A: Direct User Approval (Standard)
 
@@ -123,7 +128,11 @@ The `payload` field must contain:
 
 **Important Logic:** The `spender` in the signature is the [**x402ExactPermit2Proxy**](#reference-implementation-x402ExactPermit2Proxy), not the Facilitator. This Proxy enforces that funds are only sent to the `witness.to` address.
 
-> **Requirement**: This contract will be deployed to the same address across all supported EVM chains using `CREATE2` to ensure consistent behavior and simpler integration.
+The canonical proxy address is the default only on networks where that exact
+bytecode is deployed. A network MAY use another trusted Permit2 and proxy
+deployment. Clients and facilitators MUST resolve the same addresses for the
+payment network and MUST reject a payload whose `spender` differs from the
+trusted proxy.
 
 **Example PaymentPayload:**
 
@@ -151,7 +160,7 @@ The `payload` field must contain:
         "amount": "10000"
       },
       "from": "0x857b06519E91e3A54538791bDbb0E22373e36b66",
-      "spender": "0x402085c248EeA27D92E8b30b2C58ed07f9E20001", // Canonical x402ExactPermit2Proxy address
+      "spender": "0x402085c248EeA27D92E8b30b2C58ed07f9E20001", // Trusted x402ExactPermit2Proxy address
       "nonce": "33247007178036348590600198031289925668252061821958005840077069883511451257277",
       "deadline": "1740672154",
       "witness": {
@@ -329,7 +338,10 @@ The Delegation Manager validates the delegation authority and calls the delegato
 
 ## Implementer Notes
 
-- **Permit2 Dependency:** Both the Permit2 contract and the x402ExactPermit2Proxy are audited, battle-tested contracts. However, integrators inherit their security properties and any future vulnerabilities discovered in either dependency.
+- **Permit2 Dependency:** Integrators inherit the security properties of their
+  selected Permit2 and proxy deployments. A non-canonical proxy MUST preserve
+  the exact proxy ABI, witness type, destination binding, exact-amount
+  semantics, and replay protection defined here.
 
 ---
 
@@ -345,15 +357,23 @@ Since verification is performed entirely through simulation, facilitators do not
 
 ### Canonical Permit2
 
-The Canonical Permit2 contract address can be found at [https://docs.uniswap.org/contracts/v4/deployments](https://docs.uniswap.org/contracts/v4/deployments).
+The canonical Permit2 contract address can be found at
+[Uniswap deployments](https://docs.uniswap.org/contracts/v4/deployments). It is
+the default only when code exists at that address on the selected network.
+Networks without that deployment MAY use another trusted Permit2 address.
+Permit2's address is part of its EIP-712 domain, so the client and facilitator
+MUST use the same locally configured address.
 
 ### Reference Implementation: `x402ExactPermit2Proxy`
 
 This contract acts as the authorized Spender. It validates the Witness data to ensure the destination cannot be altered by the Facilitator.
 
-> **Requirement**: This contract will be deployed to the same address across all supported EVM chains using `CREATE2` to ensure consistent behavior and simpler integration.
+**Canonical default:** `0x402085c248EeA27D92E8b30b2C58ed07f9E20001`
 
-**Canonical Address:** `0x402085c248EeA27D92E8b30b2C58ed07f9E20001`
+This address is authoritative only where the reference bytecode is deployed.
+Alternate deployments MUST be explicitly configured by both client and
+facilitator. The signed `permit2Authorization.spender` MUST equal the selected
+proxy, and the Permit2 EIP-712 domain MUST use the selected Permit2 contract.
 
 ```solidity
 // SPDX-License-Identifier: MIT

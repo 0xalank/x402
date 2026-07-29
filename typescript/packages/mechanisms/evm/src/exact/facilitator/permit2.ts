@@ -16,17 +16,19 @@ import {
 } from "../extensions";
 import { getAddress, encodeFunctionData } from "viem";
 import { appendDataSuffix, resolveDataSuffix } from "../../shared/extensions";
+import { permit2WitnessTypes, x402ExactPermit2ProxyABI } from "../../constants";
 import {
-  PERMIT2_ADDRESS,
-  permit2WitnessTypes,
-  x402ExactPermit2ProxyABI,
-  x402ExactPermit2ProxyAddress,
-} from "../../constants";
+  DEFAULT_EXACT_EVM_CONTRACT_ADDRESSES,
+  type ExactEvmContractAddresses,
+} from "../../contracts";
 import * as Errors from "./errors";
 import { FacilitatorEvmSigner } from "../../signer";
 import { ExactPermit2Payload } from "../../types";
 import { getEvmChainId } from "../../utils";
-import { validateErc20ApprovalForPayment } from "./erc20approval";
+import {
+  validateErc20ApprovalForPayment,
+  type Erc20ApprovalTransactionParser,
+} from "./erc20approval";
 import { verifyTypedDataSignature } from "../../shared/verifySignature";
 import {
   simulatePermit2Settle,
@@ -42,14 +44,11 @@ import {
   type Permit2ProxyConfig,
 } from "../../shared/permit2";
 
-const exactProxyConfig: Permit2ProxyConfig = {
-  proxyAddress: x402ExactPermit2ProxyAddress,
-  proxyABI: x402ExactPermit2ProxyABI,
-};
-
 export interface VerifyPermit2Options {
   /** Run onchain simulation. Defaults to true. */
   simulate?: boolean;
+  /** Parser for a network-native signed approval transaction encoding. */
+  approvalTransactionParser?: Erc20ApprovalTransactionParser;
 }
 
 export interface Permit2FacilitatorConfig {
@@ -60,6 +59,8 @@ export interface Permit2FacilitatorConfig {
    * @default false
    */
   simulateInSettle?: boolean;
+  /** Parser for a network-native signed approval transaction encoding. */
+  approvalTransactionParser?: Erc20ApprovalTransactionParser;
 }
 
 /**
@@ -76,6 +77,7 @@ export interface Permit2FacilitatorConfig {
  * @param permit2Payload - The Permit2 specific payload
  * @param context - Optional facilitator context for extension-provided capabilities
  * @param options - Optional verification options (e.g. simulate)
+ * @param contracts - Trusted Permit2 deployment addresses
  * @returns Promise resolving to verification response
  */
 export async function verifyPermit2(
@@ -85,8 +87,13 @@ export async function verifyPermit2(
   permit2Payload: ExactPermit2Payload,
   context?: FacilitatorContext,
   options?: VerifyPermit2Options,
+  contracts: ExactEvmContractAddresses = DEFAULT_EXACT_EVM_CONTRACT_ADDRESSES,
 ): Promise<VerifyResponse> {
   const payer = permit2Payload.permit2Authorization.from;
+  const proxyConfig: Permit2ProxyConfig = {
+    proxyAddress: contracts.exactPermit2Proxy,
+    proxyABI: x402ExactPermit2ProxyABI,
+  };
 
   if (payload.accepted.scheme !== "exact" || requirements.scheme !== "exact") {
     return {
@@ -114,7 +121,7 @@ export async function verifyPermit2(
 
   if (
     getAddress(permit2Payload.permit2Authorization.spender) !==
-    getAddress(x402ExactPermit2ProxyAddress)
+    getAddress(contracts.exactPermit2Proxy)
   ) {
     return {
       isValid: false,
@@ -175,7 +182,7 @@ export async function verifyPermit2(
     domain: {
       name: "Permit2",
       chainId,
-      verifyingContract: PERMIT2_ADDRESS,
+      verifyingContract: contracts.permit2,
     },
     message: {
       permitted: {
@@ -219,25 +226,31 @@ export async function verifyPermit2(
   // Branch: EIP-2612 gas sponsoring (atomic settleWithPermit via contract)
   const eip2612Info = extractEip2612GasSponsoringInfo(payload);
   if (eip2612Info) {
-    const fieldResult = validateEip2612PermitForPayment(eip2612Info, payer, tokenAddress);
+    const fieldResult = validateEip2612PermitForPayment(
+      eip2612Info,
+      payer,
+      tokenAddress,
+      contracts.permit2,
+    );
     if (!fieldResult.isValid) {
       return { isValid: false, invalidReason: fieldResult.invalidReason!, payer };
     }
 
     const exactSettleArgs = buildExactPermit2SettleArgs(permit2Payload);
     const simOk = await simulatePermit2SettleWithPermit(
-      exactProxyConfig,
+      proxyConfig,
       signer,
       exactSettleArgs,
       eip2612Info,
     );
     if (!simOk) {
       return diagnosePermit2SimulationFailure(
-        exactProxyConfig,
+        proxyConfig,
         signer,
         tokenAddress,
         permit2Payload,
         requirements.amount,
+        contracts.permit2,
       );
     }
 
@@ -252,7 +265,14 @@ export async function verifyPermit2(
   if (erc20GasSponsorshipExtension) {
     const erc20Info = extractErc20ApprovalGasSponsoringInfo(payload);
     if (erc20Info) {
-      const fieldResult = await validateErc20ApprovalForPayment(erc20Info, payer, tokenAddress);
+      const fieldResult = await validateErc20ApprovalForPayment(
+        erc20Info,
+        payer,
+        tokenAddress,
+        contracts.permit2,
+        chainId,
+        options?.approvalTransactionParser,
+      );
       if (!fieldResult.isValid) {
         return { isValid: false, invalidReason: fieldResult.invalidReason!, payer };
       }
@@ -264,18 +284,19 @@ export async function verifyPermit2(
 
       if (extensionSigner?.simulateTransactions) {
         const simOk = await simulatePermit2SettleWithErc20Approval(
-          exactProxyConfig,
+          proxyConfig,
           extensionSigner,
           buildExactPermit2SettleArgs(permit2Payload),
           erc20Info,
         );
         if (!simOk) {
           return diagnosePermit2SimulationFailure(
-            exactProxyConfig,
+            proxyConfig,
             signer,
             tokenAddress,
             permit2Payload,
             requirements.amount,
+            contracts.permit2,
           );
         }
         return { isValid: true, invalidReason: undefined, payer };
@@ -283,28 +304,30 @@ export async function verifyPermit2(
 
       // Fallback to prerequisite-only check if simulateTransactions is not available
       return checkPermit2Prerequisites(
-        exactProxyConfig,
+        proxyConfig,
         signer,
         tokenAddress,
         payer,
         requirements.amount,
+        contracts.permit2,
       );
     }
   }
 
   // Branch: standard settle (allowance already on-chain)
   const simOk = await simulatePermit2Settle(
-    exactProxyConfig,
+    proxyConfig,
     signer,
     buildExactPermit2SettleArgs(permit2Payload),
   );
   if (!simOk) {
     return diagnosePermit2SimulationFailure(
-      exactProxyConfig,
+      proxyConfig,
       signer,
       tokenAddress,
       permit2Payload,
       requirements.amount,
+      contracts.permit2,
     );
   }
 
@@ -324,6 +347,7 @@ export async function verifyPermit2(
  * @param permit2Payload - The Permit2 specific payload
  * @param context - Optional facilitator context for extension-provided capabilities
  * @param config - Optional facilitator config (simulateInSettle)
+ * @param contracts - Trusted Permit2 deployment addresses
  * @returns Promise resolving to settlement response
  */
 export async function settlePermit2(
@@ -333,12 +357,26 @@ export async function settlePermit2(
   permit2Payload: ExactPermit2Payload,
   context?: FacilitatorContext,
   config?: Permit2FacilitatorConfig,
+  contracts: ExactEvmContractAddresses = DEFAULT_EXACT_EVM_CONTRACT_ADDRESSES,
 ): Promise<SettleResponse> {
   const payer = permit2Payload.permit2Authorization.from;
+  const proxyConfig: Permit2ProxyConfig = {
+    proxyAddress: contracts.exactPermit2Proxy,
+    proxyABI: x402ExactPermit2ProxyABI,
+  };
 
-  const valid = await verifyPermit2(signer, payload, requirements, permit2Payload, context, {
-    simulate: config?.simulateInSettle ?? false,
-  });
+  const valid = await verifyPermit2(
+    signer,
+    payload,
+    requirements,
+    permit2Payload,
+    context,
+    {
+      simulate: config?.simulateInSettle ?? false,
+      approvalTransactionParser: config?.approvalTransactionParser,
+    },
+    contracts,
+  );
   if (!valid.isValid) {
     return {
       success: false,
@@ -358,7 +396,7 @@ export async function settlePermit2(
   const eip2612Info = extractEip2612GasSponsoringInfo(payload);
   if (eip2612Info) {
     return settlePermit2WithEIP2612(
-      exactProxyConfig,
+      proxyConfig,
       signer,
       payload,
       permit2Payload,
@@ -380,7 +418,7 @@ export async function settlePermit2(
     );
     if (extensionSigner) {
       return settlePermit2WithERC20Approval(
-        exactProxyConfig,
+        proxyConfig,
         extensionSigner,
         payload,
         permit2Payload,
@@ -391,7 +429,7 @@ export async function settlePermit2(
   }
 
   // Branch: standard settle (allowance already on-chain)
-  return settlePermit2Direct(exactProxyConfig, signer, payload, permit2Payload, dataSuffix);
+  return settlePermit2Direct(proxyConfig, signer, payload, permit2Payload, dataSuffix);
 }
 
 // ---------------------------------------------------------------------------

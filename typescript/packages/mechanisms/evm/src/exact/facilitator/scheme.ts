@@ -10,6 +10,11 @@ import { FacilitatorEvmSigner } from "../../signer";
 import { ExactEvmPayloadV2, ExactEIP3009Payload, isPermit2Payload } from "../../types";
 import { verifyEIP3009, settleEIP3009 } from "./eip3009";
 import { verifyPermit2, settlePermit2 } from "./permit2";
+import {
+  resolveExactEvmContractAddresses,
+  type ExactEvmContractAddressConfig,
+} from "../../contracts";
+import type { Erc20ApprovalTransactionParser } from "../../shared/erc20approval";
 
 export interface ExactEvmSchemeConfig {
   /**
@@ -28,6 +33,13 @@ export interface ExactEvmSchemeConfig {
    * @default false
    */
   simulateInSettle?: boolean;
+  /**
+   * Trusted Permit2 and exact proxy deployments, either flat for a
+   * network-specific facilitator or keyed by EIP-155 chain ID.
+   */
+  contracts?: ExactEvmContractAddressConfig;
+  /** Parser for networks whose signed account transactions are not Ethereum RLP. */
+  approvalTransactionParser?: Erc20ApprovalTransactionParser;
 }
 
 /**
@@ -39,7 +51,8 @@ export interface ExactEvmSchemeConfig {
 export class ExactEvmScheme implements SchemeNetworkFacilitator {
   readonly scheme = "exact";
   readonly caipFamily = "eip155:*";
-  private readonly config: Required<ExactEvmSchemeConfig>;
+  private readonly config: Required<Omit<ExactEvmSchemeConfig, "approvalTransactionParser">> &
+    Pick<ExactEvmSchemeConfig, "approvalTransactionParser">;
 
   /**
    * Creates a new ExactEvmScheme facilitator instance.
@@ -54,6 +67,8 @@ export class ExactEvmScheme implements SchemeNetworkFacilitator {
     this.config = {
       eip6492AllowedFactories: config?.eip6492AllowedFactories ?? [],
       simulateInSettle: config?.simulateInSettle ?? false,
+      contracts: config?.contracts ?? {},
+      approvalTransactionParser: config?.approvalTransactionParser,
     };
   }
 
@@ -96,7 +111,19 @@ export class ExactEvmScheme implements SchemeNetworkFacilitator {
     const isPermit2 = isPermit2Payload(rawPayload);
 
     if (isPermit2) {
-      return verifyPermit2(this.signer, payload, requirements, rawPayload, context);
+      return verifyPermit2(
+        this.signer,
+        payload,
+        requirements,
+        rawPayload,
+        context,
+        { approvalTransactionParser: this.config.approvalTransactionParser },
+        resolveExactEvmContractAddresses(
+          requirements.network,
+          this.config.contracts,
+          requirements.asset,
+        ),
+      );
     }
 
     const eip3009Payload: ExactEIP3009Payload = rawPayload;
@@ -127,9 +154,22 @@ export class ExactEvmScheme implements SchemeNetworkFacilitator {
     const isPermit2 = isPermit2Payload(rawPayload);
 
     if (isPermit2) {
-      return settlePermit2(this.signer, payload, requirements, rawPayload, context, {
-        simulateInSettle: this.config.simulateInSettle,
-      });
+      return settlePermit2(
+        this.signer,
+        payload,
+        requirements,
+        rawPayload,
+        context,
+        {
+          simulateInSettle: this.config.simulateInSettle,
+          approvalTransactionParser: this.config.approvalTransactionParser,
+        },
+        resolveExactEvmContractAddresses(
+          requirements.network,
+          this.config.contracts,
+          requirements.asset,
+        ),
+      );
     }
 
     const eip3009Payload: ExactEIP3009Payload = rawPayload;
