@@ -35,6 +35,7 @@ This page tracks which features are implemented in each SDK (TypeScript, Go, Pyt
 | hedera | ✅ | ❌ | ❌ |
 | keeta | ✅ | ❌ | ❌ |
 | near | ✅ | ❌ | ❌ |
+| quai | ✅ | ❌ | ❌ |
 | ccd (Concordium) | ✅ | ❌ | ❌ |
 | xrpl | ✅ | ❌ | ❌ |
 
@@ -52,6 +53,7 @@ This page tracks which features are implemented in each SDK (TypeScript, Go, Pyt
 | exact | tvm | - | ✅ | ❌ | ✅ |
 | exact | keeta | - | ✅ | ❌ | ❌ |
 | exact | near | - | ✅ | ❌ | ❌ |
+| exact | quai | native QUAI or QI | ✅ | ❌ | ❌ |
 | exact | ccd (Concordium) | sponsored V1 | ✅ | ❌ | ❌ |
 | exact | xrpl | `sequence` | ✅ | ❌ | ❌ |
 | exact | xrpl | `ticketSequence` | ✅ | ❌ | ❌ |
