@@ -16,11 +16,7 @@ the returned profile solution.
 ```ts
 import { WorkServerScheme } from "@x402/work/server";
 
-const workServer = new WorkServerScheme({
-  issuers: [profile],
-});
-
-resourceServer.register("quai:9", workServer);
+resourceServer.register("quai:9", new WorkServerScheme({ issuers: [profile] }));
 
 const price = {
   amount: "65536",
@@ -51,18 +47,13 @@ fires at `refreshAfter`, or at `expiresAt` when no earlier refresh is given.
 ## Register the facilitator
 
 ```ts
-import {
-  WorkFacilitatorScheme,
-  type WorkSettlementStore,
-} from "@x402/work/facilitator";
-
-const store: WorkSettlementStore = durableSharedStore;
+import { WorkFacilitatorScheme } from "@x402/work/facilitator";
 
 facilitator.register(
   "quai:9",
   new WorkFacilitatorScheme({
     profiles: [profile],
-    store,
+    store: durableSharedStore,
   }),
 );
 ```

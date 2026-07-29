@@ -374,11 +374,11 @@ describe("x402 core integration", () => {
       profile: PROFILE,
       asset: "hash",
       networks: [NETWORK],
-      issue: async () => ({
+      issue: vi.fn(async () => ({
         id: "core-job",
         expiresAt: NOW / 1000 + 30,
         payload: { header: "native" },
-      }),
+      })),
     };
     const solver: WorkSolver = {
       profile: PROFILE,
@@ -431,9 +431,18 @@ describe("x402 core integration", () => {
     const payment = await new x402Client()
       .register(NETWORK, new WorkClientScheme({ solvers: [solver], now: () => NOW }))
       .createPaymentPayload(required);
-    const matched = server.findMatchingRequirements(required.accepts, payment);
+    const retried = await server.createPaymentRequiredResponse(
+      base,
+      required.resource,
+      undefined,
+      undefined,
+      undefined,
+      payment,
+    );
+    const matched = server.findMatchingRequirements(retried.accepts, payment);
 
     expect(matched).toBeDefined();
+    expect(issuer.issue).toHaveBeenCalledOnce();
     expect(await server.verifyPayment(payment, matched!)).toEqual(
       expect.objectContaining({ isValid: true }),
     );

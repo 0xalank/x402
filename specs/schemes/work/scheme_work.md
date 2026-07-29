@@ -97,9 +97,9 @@ Servers MUST confirm profile support before issuing a job.
 
 ## Verification and settlement
 
-The server obtains a current native job for `payTo`. At `refreshAfter` or
-`expiresAt`, the client MUST stop mining and repeat the original request
-without a payment header. A native job update MAY invalidate work earlier.
+The server obtains a current native job for `payTo` and MUST reuse that accepted
+job on the paid retry. At `refreshAfter` or `expiresAt`, the client MUST stop
+mining and repeat the request without payment. A job update MAY invalidate work.
 
 Verification MUST fail unless `accepted` exactly matches the trusted
 requirement; the profile, network, asset, target, job, reward binding, solution,

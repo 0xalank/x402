@@ -85,6 +85,26 @@ export class WorkScheme implements SchemeNetworkServer {
   async enrichPaymentRequiredResponse(
     context: SchemePaymentRequiredContext,
   ): Promise<PaymentRequirements[]> {
+    const accepted = context.paymentPayload?.accepted;
+    if (accepted?.scheme === WORK_SCHEME) {
+      try {
+        const acceptedExtra = parseWorkExtra(accepted.extra);
+        const resumed = context.requirements.findIndex(
+          requirement =>
+            requirement.extra.job === undefined &&
+            sameOffer(requirement, accepted, acceptedExtra.profile),
+        );
+        const issuer = this.issuers.get(acceptedExtra.profile);
+        if (resumed !== -1 && issuer && supports(issuer, accepted)) {
+          remainingJobMs(acceptedExtra.job, accepted.maxTimeoutSeconds, this.now());
+          return context.requirements.map((requirement, index) =>
+            index === resumed ? { ...accepted, extra: acceptedExtra } : requirement,
+          );
+        }
+      } catch {
+        // Invalid or stale accepted work falls through to a fresh job.
+      }
+    }
     const index = context.requirements.findIndex(
       requirement => requirement.scheme === WORK_SCHEME && requirement.extra.job === undefined,
     );
@@ -117,6 +137,22 @@ export class WorkScheme implements SchemeNetworkServer {
       current === index ? { ...requirement, extra } : requirement,
     );
   }
+}
+
+function sameOffer(
+  requirement: PaymentRequirements,
+  accepted: PaymentRequirements,
+  profile: string,
+): boolean {
+  return (
+    requirement.scheme === accepted.scheme &&
+    requirement.network === accepted.network &&
+    requirement.asset === accepted.asset &&
+    requirement.amount === accepted.amount &&
+    requirement.payTo === accepted.payTo &&
+    requirement.maxTimeoutSeconds === accepted.maxTimeoutSeconds &&
+    requirement.extra.profile === profile
+  );
 }
 
 function supportedProfiles(kind: SupportedKind, network: Network): string[] {

@@ -3,47 +3,25 @@ title: "Work"
 description: "Pay for an x402 resource with a provider-issued proof-of-work solution."
 ---
 
-The `work` scheme prices a request in expected proof evaluations. The server
-returns a native job in its `402`, the client solves it, and settlement succeeds
-only after the configured work source accepts the solution.
-
-A profile defines the native job, algorithm, solution, verification, and source
-submission rules. Stratum, StratumX, pool, and node RPC connections remain
-private profile adapters.
+The `work` scheme prices a request in expected proof evaluations. A profile
+defines its native job, proof, solution, and source submission. Settlement
+succeeds only when that source accepts the solution.
 
 ### Server Setup
 
-Register a profile issuer, then price the route with an explicit amount and
-profile.
-
-```typescript
-import { WorkServerScheme } from "@x402/work/server";
-
-const workServer = new WorkServerScheme({
-  issuers: [workProfile],
-});
-
-resourceServer.register("quai:9", workServer);
-
-const price = {
-  amount: "65536",
-  asset: "hash",
-  extra: { profile: "quai/sha256d-v1" },
-};
-```
+Register `WorkServerScheme` with a profile issuer, then price the route with an
+explicit hash amount and profile. Native source credentials remain private.
 
 ### Client Setup
 
-Register `WorkClientScheme` with a solver for each accepted profile. The solver
-receives the native job, derived target, and an `AbortSignal`; it must stop at
-`refreshAfter` or `expiresAt`.
+Register `WorkClientScheme` with a solver for each accepted profile. Solvers
+receive the job, derived target, and deadline `AbortSignal`.
 
 ### Facilitator Setup
 
-Register `WorkFacilitatorScheme` with verifier profiles and a durable atomic
-replay store shared by every process. Verification never submits work.
-Settlement re-verifies and submits the exact solution. A transport-level
-acknowledgement that does not credit the provider is not payment.
+Register `WorkFacilitatorScheme` with verifier profiles and a durable shared
+replay store. Verification never submits. Settlement re-verifies and submits
+the exact solution; an uncredited transport acknowledgement is not payment.
 
 ### Specs
 
